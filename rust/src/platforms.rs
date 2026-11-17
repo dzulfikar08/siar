@@ -5,11 +5,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 use crate::config::app_creds;
-use crate::util::{bail, Error, Obj, Result};
-
-/// Platforms whose API calls are ported to Rust. The rest are listed and validated, but
-/// connecting, publishing or reading them returns a "not ported yet" error.
-pub const PORTED: [&str; 5] = ["instagram", "threads", "linkedin", "linkedin-page", "youtube"];
+use crate::util::{bail, Obj, Result};
 
 pub struct Platform {
     pub id: String,
@@ -27,19 +23,10 @@ impl Platform {
     pub fn oauth_env(&self) -> Option<&str> {
         self.meta["auth"]["env"].as_str()
     }
-    pub fn ported(&self) -> bool {
-        PORTED.contains(&self.id.as_str())
-    }
-    pub fn not_ported(&self) -> Error {
-        Error::Msg(format!("{} is not ported to the Rust build of siar yet", self.name))
-    }
-    /// The TS `need(p, k)` check, then the Rust-port check.
+    /// The TS `need(p, k)` check.
     pub fn need(&self, cap: &str) -> Result<()> {
         if !self.has(cap) {
             bail!("{} does not support this through its API", self.name);
-        }
-        if !self.ported() {
-            return Err(self.not_ported());
         }
         Ok(())
     }

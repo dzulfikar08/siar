@@ -37,10 +37,6 @@ fn escape_raw(s: &str) -> String {
     out
 }
 
-fn is_tag_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
 /// Escape text for LinkedIn's "little" format; #tags become clickable hashtag templates.
 /// Mirrors `/(^|\s)#([\p{L}\p{N}_]+)/gu`.
 pub fn escape_little(s: &str) -> String {
@@ -50,10 +46,10 @@ pub fn escape_little(s: &str) -> String {
     let mut i = 0;
     while i < chars.len() {
         let (pos, c) = chars[i];
-        let at_start = i == 0 || chars[i - 1].1.is_whitespace();
+        let at_start = i == 0 || crate::util::js_is_space(chars[i - 1].1);
         if c == '#' && at_start && pos >= last {
             let mut j = i + 1;
-            while j < chars.len() && is_tag_char(chars[j].1) {
+            while j < chars.len() && crate::util::is_tag_char(chars[j].1) {
                 j += 1;
             }
             if j > i + 1 {
@@ -273,6 +269,8 @@ pub fn personal_spec() -> OAuthSpec {
         scope_sep: " ",
         extra_auth_params: vec![],
         config_id_env: None,
+        client_auth_basic: false,
+        client_id_param: "client_id",
     }
 }
 

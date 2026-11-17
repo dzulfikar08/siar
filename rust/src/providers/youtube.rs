@@ -26,6 +26,8 @@ pub fn spec() -> OAuthSpec {
         scope_sep: " ",
         extra_auth_params: vec![("access_type", "offline"), ("prompt", "consent"), ("include_granted_scopes", "true")],
         config_id_env: None,
+        client_auth_basic: false,
+        client_id_param: "client_id",
     }
 }
 
@@ -249,4 +251,31 @@ pub fn account_metrics(ctx: &Ctx) -> Result<Value> {
         .get_json()?;
     let s = r.pointer("/items/0/statistics").cloned().unwrap_or_default();
     Ok(json!({ "subscribers": n(s.get("subscriberCount")), "views": n(s.get("viewCount")), "videos": n(s.get("videoCount")) }))
+}
+
+pub fn comment_reply(ctx: &Ctx, comment_id: &str, text: &str) -> Result<Value> {
+    net::post(format!("{YT}/comments"))
+        .bearer(&ctx.token())
+        .query(&[("part", Some("snippet".into()))])
+        .json(json!({ "snippet": { "parentId": comment_id, "textOriginal": text } }))
+        .get_json()
+}
+
+pub fn comment_hide(ctx: &Ctx, comment_id: &str, hidden: bool) -> Result<()> {
+    net::post(format!("{YT}/comments/setModerationStatus"))
+        .bearer(&ctx.token())
+        .query(&[
+            ("id", Some(comment_id.into())),
+            ("moderationStatus", Some(if hidden { "heldForReview" } else { "published" }.into())),
+        ])
+        .send()?;
+    Ok(())
+}
+
+pub fn comment_remove(ctx: &Ctx, comment_id: &str) -> Result<()> {
+    net::req("DELETE", format!("{YT}/comments"))
+        .bearer(&ctx.token())
+        .query(&[("id", Some(comment_id.into()))])
+        .send()?;
+    Ok(())
 }

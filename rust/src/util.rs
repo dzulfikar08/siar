@@ -431,6 +431,56 @@ pub fn query_string(q: &[(&str, String)]) -> String {
         .join("&")
 }
 
+/// `Basic base64(user:pass)`
+pub fn basic_auth(user: &str, pass: &str) -> String {
+    use base64::Engine;
+    format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}")))
+}
+
+/// `[\p{L}\p{N}_]` with JavaScript's u flag (letters, numbers, underscore; no combining marks).
+pub fn is_tag_char(c: char) -> bool {
+    let cp = c as u32;
+    if cp < 0x80 {
+        return c.is_ascii_alphanumeric() || c == '_';
+    }
+    crate::unicode_tables::TAG_CHAR
+        .binary_search_by(|&(lo, hi)| {
+            if hi < cp {
+                std::cmp::Ordering::Less
+            } else if lo > cp {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
+}
+
+/// JavaScript's `\s`.
+pub fn js_is_space(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+    )
+}
+
+/// Hashtags as `/(?<=^|\s)#([\p{L}\p{N}_]+)/gu` finds them: (byte start of '#', tag).
+pub fn hashtags(s: &str) -> Vec<(usize, String)> {
+    let mut out = vec![];
+    let mut prev: Option<char> = None;
+    for (i, c) in s.char_indices() {
+        if c == '#' && prev.map(js_is_space).unwrap_or(true) {
+            let tag: String = s[i + 1..].chars().take_while(|c| is_tag_char(*c)).collect();
+            if !tag.is_empty() {
+                out.push((i, tag));
+            }
+        }
+        prev = Some(c);
+    }
+    out
+}
+
 pub fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }

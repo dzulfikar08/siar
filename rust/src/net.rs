@@ -34,6 +34,119 @@ pub enum Body {
         offset: u64,
         len: u64,
     },
+    /// multipart/form-data like FormData; file parts stream from disk.
+    Multipart(Vec<Part>),
+}
+
+pub enum PartData {
+    Text(String),
+    Bytes(Vec<u8>),
+    /// A staged media file (kept alive until the request is sent).
+    Local(crate::media::LocalFile),
+    /// `len` bytes of a file from `offset`.
+    Slice {
+        path: PathBuf,
+        offset: u64,
+        len: u64,
+    },
+}
+
+pub struct Part {
+    pub name: String,
+    pub filename: Option<String>,
+    pub mime: Option<String>,
+    pub data: PartData,
+}
+
+impl Part {
+    pub fn text(name: &str, value: impl Into<String>) -> Part {
+        Part {
+            name: name.into(),
+            filename: None,
+            mime: None,
+            data: PartData::Text(value.into()),
+        }
+    }
+    /// A file part like `fd.append(name, new Blob([...], { type }), filename)`.
+    pub fn file(name: &str, filename: &str, mime: Option<&str>, data: PartData) -> Part {
+        Part {
+            name: name.into(),
+            filename: Some(filename.into()),
+            mime: Some(mime.unwrap_or("application/octet-stream").into()),
+            data,
+        }
+    }
+}
+
+/// Reads several readers one after the other.
+struct Chain(std::collections::VecDeque<Box<dyn Read + Send>>);
+
+impl Read for Chain {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        while let Some(r) = self.0.front_mut() {
+            let n = r.read(buf)?;
+            if n > 0 {
+                return Ok(n);
+            }
+            self.0.pop_front();
+        }
+        Ok(0)
+    }
+}
+
+fn quote_header(s: &str) -> String {
+    s.replace('"', "%22").replace('\r', "%0D").replace('\n', "%0A")
+}
+
+/// Builds a streaming multipart body: (content type, length, reader).
+fn multipart(parts: Vec<Part>) -> Result<(String, u64, Chain)> {
+    let boundary = format!("----siarFormBoundary{}", crate::util::hex(&crate::util::random_bytes(12)));
+    let mut readers: std::collections::VecDeque<Box<dyn Read + Send>> = Default::default();
+    let mut len = 0u64;
+    let push_bytes = |readers: &mut std::collections::VecDeque<Box<dyn Read + Send>>, b: Vec<u8>, len: &mut u64| {
+        *len += b.len() as u64;
+        readers.push_back(Box::new(std::io::Cursor::new(b)));
+    };
+    for p in parts {
+        let mut head = format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{}\"", quote_header(&p.name));
+        if let Some(f) = &p.filename {
+            head.push_str(&format!("; filename=\"{}\"", quote_header(f)));
+        }
+        head.push_str("\r\n");
+        if let Some(m) = &p.mime {
+            head.push_str(&format!("Content-Type: {m}\r\n"));
+        }
+        head.push_str("\r\n");
+        push_bytes(&mut readers, head.into_bytes(), &mut len);
+        match p.data {
+            PartData::Text(t) => push_bytes(&mut readers, t.into_bytes(), &mut len),
+            PartData::Bytes(b) => push_bytes(&mut readers, b, &mut len),
+            PartData::Local(f) => {
+                let file = File::open(&f.path)?;
+                len += f.len;
+                // The LocalFile guard rides along so a temporary download outlives the upload.
+                readers.push_back(Box::new(Guarded(file.take(f.len), f)));
+            }
+            PartData::Slice { path, offset, len: n } => {
+                let mut file = File::open(&path)?;
+                file.seek(SeekFrom::Start(offset))?;
+                len += n;
+                readers.push_back(Box::new(file.take(n)));
+            }
+        }
+        push_bytes(&mut readers, b"\r\n".to_vec(), &mut len);
+    }
+    push_bytes(&mut readers, format!("--{boundary}--\r\n").into_bytes(), &mut len);
+    Ok((format!("multipart/form-data; boundary={boundary}"), len, Chain(readers)))
+}
+
+struct Guarded<R>(R, crate::media::LocalFile);
+
+impl<R: Read> Read for Guarded<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let _ = &self.1;
+        self.0.read(buf)
+    }
 }
 
 pub struct Req {
@@ -63,6 +176,13 @@ pub fn post(url: impl Into<String>) -> Req {
 impl Req {
     pub fn header(mut self, k: &str, v: impl Into<String>) -> Self {
         self.headers.push((k.to_string(), v.into()));
+        self
+    }
+    pub fn basic(self, user: &str, pass: &str) -> Self {
+        self.header("authorization", crate::util::basic_auth(user, pass))
+    }
+    pub fn multipart(mut self, parts: Vec<Part>) -> Self {
+        self.body = Body::Multipart(parts);
         self
     }
     pub fn bearer(self, token: &str) -> Self {
@@ -129,6 +249,12 @@ impl Req {
             Body::Bytes(bytes) => {
                 extra.push(("content-length".into(), bytes.len().to_string()));
                 ureq::SendBody::from_owned_reader(std::io::Cursor::new(bytes))
+            }
+            Body::Multipart(parts) => {
+                let (ct, len, reader) = multipart(parts)?;
+                extra.push(("content-type".into(), ct));
+                extra.push(("content-length".into(), len.to_string()));
+                ureq::SendBody::from_owned_reader(reader)
             }
             Body::File { path, offset, len } => {
                 let mut f = File::open(&path)?;

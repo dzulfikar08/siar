@@ -170,7 +170,7 @@ pub fn ensure_fresh(a: &AccountRow, force: bool) -> Result<Value> {
     let mut secret = vault::open(&a.secret)?;
     let p = platforms::get(&a.platform)?;
     let expiring = a.expires_at.map(|e| e != 0 && e - now() < 10 * 60_000).unwrap_or(false);
-    if p.has("refresh") && p.ported() && (force || expiring) {
+    if p.has("refresh") && (force || expiring) {
         match providers::refresh(&a.platform, &secret) {
             Ok(Some((s, exp))) => {
                 secret = s;

@@ -21,9 +21,6 @@ pub fn start_oauth(platform: &str) -> Result<String> {
     if p.oauth_env().is_none() {
         bail!("{} connects with credentials, not OAuth", p.name);
     }
-    if !p.ported() {
-        return Err(p.not_ported());
-    }
     let spec = providers::oauth_spec(platform)?;
     let (id, _) = app_creds(spec.env)?;
     let state = b64url(&random_bytes(18));

@@ -1,25 +1,9 @@
-//! siar, Rust port of the core: MCP server (HTTP and stdio), scheduler, and the Instagram,
-//! Threads, LinkedIn and YouTube providers. Same database, vault and env vars as the Bun version.
+//! siar command line: `serve`, `mcp` (stdio) and `keygen`.
 
-mod accounts;
-mod config;
-mod db;
-mod insights;
-mod mcp;
-mod media;
-mod net;
-mod oauth;
-mod platforms;
-mod posts;
-mod providers;
-mod scheduler;
-mod server;
-mod util;
-mod validate;
-mod vault;
+use siar::{config, db, mcp, scheduler, server, vault};
 
-// musl's allocator is small but slow under allocation-heavy work (JSON building); the
-// `mimalloc` feature swaps it in to compare.
+// musl's allocator is small but slow with large JSON responses (big allocations are mmapped and
+// unmapped on every request); mimalloc is the default. Build with --no-default-features to compare.
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

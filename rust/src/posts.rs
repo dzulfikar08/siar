@@ -554,9 +554,6 @@ pub fn publish_target(target_id: &str) -> Result<()> {
         if !v.ok {
             return Err(Error::Permanent(v.errors.join("; ")));
         }
-        if !p.ported() {
-            return Err(Error::Permanent(p.not_ported().to_string()));
-        }
         let ctx = build_ctx(&a, &text, &media_ids, options.clone(), false)?;
         match providers::publish(&a.platform, &ctx) {
             Ok(r) => Ok(r),
@@ -577,7 +574,7 @@ pub fn publish_target(target_id: &str) -> Result<()> {
                 )?;
                 Ok(())
             })?;
-            bind_next_post(&a.id, &res.id)?;
+            crate::automations::bind_next_post(&a.id, &res.id)?;
         }
         Err(err) => {
             let attempts = t.attempts + 1;
@@ -602,33 +599,6 @@ pub fn publish_target(target_id: &str) -> Result<()> {
         }
     }
     db::with(|c| rollup(c, &t.post_id))
-}
-
-/// A comment automation with scope "next" waits for the account's next post (src/automations.ts).
-fn bind_next_post(account_id: &str, remote_post_id: &str) -> Result<()> {
-    db::with(|c| {
-        let autos = db::rows(
-            c,
-            "SELECT id, config FROM automations WHERE account_id = ? AND enabled = 1 AND kind IN ('comment_to_dm', 'comment_reply') ORDER BY created_at",
-            [account_id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-        )?;
-        for (id, config) in autos {
-            let mut cfg = json_or(Some(&config), empty_obj());
-            let unbound = cfg["platform_post_ids"].as_array().map(|a| a.is_empty()).unwrap_or(true);
-            if cfg["scope"] == "next" && unbound {
-                if let Some(o) = cfg.as_object_mut() {
-                    o.insert("platform_post_ids".into(), Value::Array(vec![remote_post_id.into()]));
-                }
-                c.execute(
-                    "UPDATE automations SET config = ?, updated_at = ? WHERE id = ?",
-                    params![cfg.to_string(), now(), id],
-                )?;
-                eprintln!("{} [automations] {id} bound to post {remote_post_id}", iso(now()));
-            }
-        }
-        Ok(())
-    })
 }
 
 /// Claim due targets atomically (BEGIN IMMEDIATE) so two processes on one database never double-post.
@@ -775,9 +745,6 @@ pub fn delete_published(post_id: &str, account_ids: Option<Vec<String>>) -> Resu
             &a.platform,
         );
         let r = (|| {
-            if !p.ported() {
-                return Err(p.not_ported());
-            }
             let ctx = build_ctx(&a, &text, &[], options, false)?;
             providers::remove(&a.platform, &ctx, t.remote_id.as_deref().unwrap_or_default())
         })();
@@ -833,9 +800,6 @@ pub fn post_metrics(post_id: &str) -> Result<Value> {
             &a.platform,
         );
         let r = (|| {
-            if !p.ported() {
-                return Err(p.not_ported());
-            }
             let ctx = build_ctx(&a, &text, &[], options, false)?;
             let m = providers::metrics(&a.platform, &ctx, t.remote_id.as_deref().unwrap_or_default())?;
             store_metric(&t.id, &m)?;

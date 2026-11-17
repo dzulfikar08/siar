@@ -91,6 +91,19 @@ pub fn remote_post_json(p: &RemotePost) -> Value {
         .build()
 }
 
+/// A remote post with plain text (stories).
+pub fn plain_post_json(p: &RemotePost) -> Value {
+    Obj::new()
+        .set("id", p.id.clone())
+        .opt("url", p.url.clone())
+        .opt("text", p.text.clone())
+        .opt("type", p.kind.clone())
+        .opt("username", p.username.clone())
+        .set("createdAt", iso(p.created_at))
+        .opt("metrics", p.metrics.clone())
+        .build()
+}
+
 struct CachedPost {
     remote_id: String,
     created_at: i64,
@@ -236,7 +249,7 @@ pub fn post_performance(post_id: &str) -> Result<Value> {
     for t in targets {
         let p = platforms::get(&t.platform)?;
         let remote = t.remote_id.clone().unwrap_or_default();
-        let m: Option<Value> = if p.has("metrics") && p.ported() {
+        let m: Option<Value> = if p.has("metrics") {
             (|| -> Result<Value> {
                 let ctx = build_ctx(&get_account(&t.account_id)?, "", &[], Value::Object(Map::new()), false)?;
                 let m = providers::metrics(&t.platform, &ctx, &remote)?;
@@ -349,7 +362,7 @@ pub fn snapshot_metrics(limit: usize) -> Result<usize> {
             break;
         }
         let p = platforms::get(&platform)?;
-        if !p.has("metrics") || !p.ported() {
+        if !p.has("metrics") {
             continue;
         }
         let age = now() - published_at;
@@ -377,8 +390,10 @@ pub fn snapshot_metrics(limit: usize) -> Result<usize> {
 // ---------- comments inbox ----------
 
 /// Upsert fetched comments.
-fn store_comments(account_id: &str, list: &[RemoteComment]) -> Result<()> {
+/// Upsert fetched comments. Returns the ones not seen before and not the account's own (for automations).
+pub fn store_comments(account_id: &str, list: &[RemoteComment]) -> Result<Vec<RemoteComment>> {
     db::tx(false, |c| {
+        let mut fresh = vec![];
         // A comment we already answered on the platform counts as replied.
         let replied_to: Vec<&str> = list.iter().filter(|x| x.mine).filter_map(|x| x.parent_id.as_deref()).collect();
         let mut ins = c.prepare_cached(
@@ -387,6 +402,12 @@ fn store_comments(account_id: &str, list: &[RemoteComment]) -> Result<()> {
              ON CONFLICT (account_id, remote_id) DO UPDATE SET text = excluded.text, hidden = excluded.hidden, fetched_at = excluded.fetched_at",
         )?;
         for x in list {
+            let seen: bool = c
+                .prepare_cached("SELECT 1 FROM comments WHERE account_id = ? AND remote_id = ?")?
+                .exists(params![account_id, x.id])?;
+            if !seen && !x.mine {
+                fresh.push(x.clone());
+            }
             let status = if x.mine {
                 "own"
             } else if replied_to.contains(&x.id.as_str()) {
@@ -414,12 +435,13 @@ fn store_comments(account_id: &str, list: &[RemoteComment]) -> Result<()> {
                 )?;
             }
         }
-        Ok(())
+        Ok(fresh)
     })
 }
 
 /// Fetch comments on recent posts of one account (posts whose comment count changed).
-fn sync_comments(account_id: &str, post_ids: Option<Vec<String>>) -> Result<()> {
+/// Returns the new comments by other people.
+pub fn sync_comments(account_id: &str, post_ids: Option<Vec<String>>) -> Result<Vec<RemoteComment>> {
     let (a, p, ctx) = ctx_for(account_id)?;
     p.need("comments")?;
     let ids = match post_ids {
@@ -467,11 +489,12 @@ fn sync_comments(account_id: &str, post_ids: Option<Vec<String>>) -> Result<()> 
             keep
         }
     };
+    let mut fresh = vec![];
     for id in ids {
         let list = providers::list_comments(&a.platform, &ctx, &id)?;
-        store_comments(&a.id, &list)?;
+        fresh.extend(store_comments(&a.id, &list)?);
     }
-    Ok(())
+    Ok(fresh)
 }
 
 pub fn list_comments(args: &Value) -> Result<Value> {

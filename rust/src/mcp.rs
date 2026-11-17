@@ -6,15 +6,17 @@ use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::accounts::{self, ctx_for, ensure_fresh, get_account, list_account_rows, list_accounts};
+use crate::automations;
 use crate::config::{config, r2_enabled};
 use crate::db;
+use crate::engage;
 use crate::insights;
 use crate::media;
 use crate::oauth::start_oauth;
 use crate::platforms;
 use crate::posts;
-use crate::providers;
-use crate::util::{arg_bool, arg_i64, arg_str, arg_strs, bail, iso, js_string, now, parse_time, Error, Obj, Result};
+use crate::providers::{self, DmPayload};
+use crate::util::{arg_bool, arg_i64, arg_str, arg_strs, bail, iso, js_string, now, parse_time, Obj, Result};
 
 const PROTOCOL_VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS: &str = "siar schedules and publishes social media posts.
@@ -165,10 +167,6 @@ fn need_str(args: &Value, k: &str) -> String {
     arg_str(args, k).unwrap_or_else(|| "undefined".into())
 }
 
-fn not_ported(name: &str) -> Error {
-    Error::Msg(format!("{name} is not ported to the Rust build of siar yet; use the Bun version for it"))
-}
-
 fn call_tool(name: &str, a: &Value) -> Result<Value> {
     match name {
         "list_platforms" => match arg_str(a, "platform").filter(|p| !p.is_empty()) {
@@ -243,17 +241,106 @@ fn call_tool(name: &str, a: &Value) -> Result<Value> {
             if !p.has("publishingLimit") {
                 bail!("{} does not report a publishing limit", p.name);
             }
-            if !p.ported() {
-                return Err(p.not_ported());
-            }
             providers::publishing_limit(&acc.platform, &ctx)
         }
         "account_info" => {
-            let (_, p, _) = ctx_for(&need_str(a, "account_id"))?;
+            let (acc, p, ctx) = ctx_for(&need_str(a, "account_id"))?;
             if !p.has("info") {
                 bail!("{} has nothing extra to show", p.name);
             }
-            Err(p.not_ported())
+            providers::info(&acc.platform, &ctx)
+        }
+        "list_stories" => {
+            let (acc, p, ctx) = ctx_for(&need_str(a, "account_id"))?;
+            if !p.has("stories") {
+                bail!("{} has no stories API", p.name);
+            }
+            Ok(Value::Array(
+                providers::stories(&acc.platform, &ctx)?.iter().map(insights::plain_post_json).collect(),
+            ))
+        }
+        "reply_to_comment" => engage::reply_to_comment(&need_str(a, "account_id"), &need_str(a, "comment_id"), &need_str(a, "text")),
+        "hide_comment" => engage::hide_comment(&need_str(a, "account_id"), &need_str(a, "comment_id"), arg_bool(a, "hidden").unwrap_or(true)),
+        "like_comment" => engage::like_comment(&need_str(a, "account_id"), &need_str(a, "comment_id")),
+        "delete_comment" => engage::delete_comment(&need_str(a, "account_id"), &need_str(a, "comment_id")),
+        "list_conversations" => engage::list_conversations(&need_str(a, "account_id"), arg_i64(a, "limit").unwrap_or(20)),
+        "get_conversation" => engage::get_conversation(&need_str(a, "account_id"), &need_str(a, "conversation_id"), arg_i64(a, "limit").unwrap_or(20)),
+        "send_dm" => {
+            let msg = DmPayload {
+                text: need_str(a, "text"),
+                buttons: engage::buttons_from(a.get("buttons")),
+            };
+            engage::send_dm(&need_str(a, "account_id"), arg_str(a, "user_id"), arg_str(a, "comment_id"), &msg)
+        }
+        "get_contact" => engage::get_contact(&need_str(a, "account_id"), &need_str(a, "user_id")),
+        "create_automation" => automations::create_automation(a),
+        "list_automations" => automations::list_automations(arg_str(a, "account_id").as_deref()),
+        "update_automation" => {
+            let mut patch = a.as_object().cloned().unwrap_or_default();
+            patch.remove("automation_id");
+            patch.remove("kind");
+            automations::update_automation(&need_str(a, "automation_id"), &patch)
+        }
+        "delete_automation" => automations::delete_automation(&need_str(a, "automation_id")),
+        "automation_activity" => automations::automation_activity(&need_str(a, "automation_id"), arg_i64(a, "limit").unwrap_or(20)),
+        "search_posts" => {
+            let (acc, p, ctx) = ctx_for(&need_str(a, "account_id"))?;
+            if !p.has("search") {
+                bail!("{} has no search API", p.name);
+            }
+            let found = providers::search(
+                &acc.platform,
+                &ctx,
+                &need_str(a, "q"),
+                arg_str(a, "type").as_deref(),
+                arg_i64(a, "limit").unwrap_or(25),
+            )?;
+            Ok(Value::Array(found.iter().map(engage::untrusted_post).collect()))
+        }
+        "get_post_context" => {
+            let (acc, p, ctx) = ctx_for(&need_str(a, "account_id"))?;
+            if !p.has("context") {
+                bail!("{} has no post context API", p.name);
+            }
+            let (post, replies) = providers::context(&acc.platform, &ctx, &need_str(a, "remote_post_id"))?;
+            let replies: Vec<Value> = replies
+                .iter()
+                .map(|c| {
+                    Obj::new()
+                        .set("id", c.id.clone())
+                        .set("parent_id", c.parent_id.clone())
+                        .opt("username", insights::untrusted(c.username.as_deref()))
+                        .set("text", insights::untrusted(Some(&c.text)))
+                        .set("at", iso(c.created_at))
+                        .set("mine", c.mine)
+                        .build()
+                })
+                .collect();
+            Ok(Obj::new().set("post", engage::untrusted_post(&post)).set("replies", replies).build())
+        }
+        "reply_to_post" => {
+            let acc = get_account(&need_str(a, "account_id"))?;
+            let key = match acc.platform.as_str() {
+                "threads" => "reply_to_id",
+                "x" => "reply_to",
+                _ => bail!("Replying to other posts is supported on Threads and X"),
+            };
+            let mut options = Map::new();
+            options.insert(key.into(), a.get("remote_post_id").cloned().unwrap_or(Value::Null));
+            let mut input = Map::new();
+            input.insert("content".into(), a.get("text").cloned().unwrap_or(Value::Null));
+            if let Some(m) = a.get("media_ids").filter(|v| !v.is_null()) {
+                input.insert("media_ids".into(), m.clone());
+            }
+            input.insert(
+                "targets".into(),
+                Value::Array(vec![Obj::new()
+                    .set("account_id", acc.id.clone())
+                    .set("options", Value::Object(options))
+                    .build()]),
+            );
+            let created = posts::create_post(&Value::Object(input), "draft", None, false)?;
+            posts::publish_now(&js_string(&created["post"]["id"]), false)
         }
         "best_times" => insights::best_times(&need_str(a, "account_id"), arg_str(a, "tz"), arg_bool(a, "refresh").unwrap_or(false)),
         "post_performance" => insights::post_performance(&need_str(a, "post_id")),
@@ -268,7 +355,7 @@ fn call_tool(name: &str, a: &Value) -> Result<Value> {
         "list_ideas" => insights::list_ideas(a),
         "update_idea" => insights::update_idea(&need_str(a, "idea_id"), a),
         "delete_idea" => insights::delete_idea(&need_str(a, "idea_id")),
-        other => Err(not_ported(other)),
+        other => bail!("Unknown tool {other}"),
     }
 }
 
@@ -282,13 +369,32 @@ fn connect_account(a: &Value) -> Result<Value> {
             .set("then", "call list_accounts after the user approves")
             .build());
     }
-    if a.get("credentials").map(|c| c.is_null()).unwrap_or(true) {
+    let Some(credentials) = a.get("credentials").filter(|c| !c.is_null()) else {
         return Ok(Obj::new()
             .set("needs", p.meta["auth"]["fields"].clone())
             .defined("help", p.meta["auth"].get("help"))
             .build());
+    };
+    let mut fields = Map::new();
+    let mut missing = vec![];
+    for f in p.meta["auth"]["fields"].as_array().into_iter().flatten() {
+        let key = f.get("key").map(js_string).unwrap_or_default();
+        let v = credentials
+            .get(&key)
+            .filter(|v| !v.is_null())
+            .or(f.get("default").filter(|v| !v.is_null()))
+            .cloned()
+            .unwrap_or(Value::from(""));
+        if !f.get("optional").map(|o| crate::util::truthy(Some(o))).unwrap_or(false) && !crate::util::truthy(Some(&v)) {
+            missing.push(key.clone());
+        }
+        fields.insert(key, v);
     }
-    Err(p.not_ported())
+    if !missing.is_empty() {
+        bail!("Missing: {}", missing.join(", "));
+    }
+    let connected = accounts::save_accounts(&platform, &providers::verify(&platform, &fields)?)?;
+    Ok(Obj::new().set("connected", connected).build())
 }
 
 fn account_analytics(a: &Value) -> Result<Value> {
@@ -314,9 +420,6 @@ fn account_analytics(a: &Value) -> Result<Value> {
                             .build();
                     }
                     let r = (|| {
-                        if !p.ported() {
-                            return Err(p.not_ported());
-                        }
                         let ctx = accounts::build_ctx(acc, "", &[], Value::Object(Map::new()), false)?;
                         providers::account_metrics(&acc.platform, &ctx)
                     })();

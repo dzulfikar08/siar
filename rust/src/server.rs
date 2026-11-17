@@ -84,8 +84,19 @@ fn terms() -> String {
     )
 }
 
+/// A response header; bytes a header cannot carry (non-ASCII, control characters) are percent-encoded.
 fn header(k: &str, v: &str) -> Header {
-    Header::from_bytes(k.as_bytes(), v.as_bytes()).expect("valid header")
+    let safe: String = v
+        .bytes()
+        .map(|b| {
+            if (0x20..0x7f).contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
+    Header::from_bytes(k.as_bytes(), safe.as_bytes()).unwrap_or_else(|_| Header::from_bytes(&b"x-invalid"[..], &b"1"[..]).expect("static header"))
 }
 
 type Resp = Response<std::io::Cursor<Vec<u8>>>;
@@ -165,6 +176,11 @@ fn decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// `[\w-]{6,16}`
+fn is_link_code(s: &str) -> bool {
+    (6..=16).contains(&s.len()) && s.chars().all(|c| is_word(c) || c == '-')
 }
 
 fn is_word(c: char) -> bool {
@@ -263,8 +279,48 @@ fn route(mut req: Request) {
                 }
             }
         }
-        "/webhooks/meta" => text("Meta webhooks are not ported to the Rust build of siar yet", 501),
-        p if p.starts_with("/l/") => text("Tracked links are not ported to the Rust build of siar yet", 501),
+        // Meta webhooks (Instagram comments, DMs, postbacks). Optional: polling works without them.
+        "/webhooks/meta" if method == Method::Get => {
+            let want = crate::config::env("SIAR_META_VERIFY_TOKEN").filter(|w| !w.is_empty());
+            let ok = want.is_some() && query_param(&query, "hub.mode").as_deref() == Some("subscribe") && query_param(&query, "hub.verify_token") == want;
+            if ok {
+                text(&query_param(&query, "hub.challenge").unwrap_or_default(), 200)
+            } else {
+                text("Forbidden", 403)
+            }
+        }
+        "/webhooks/meta" if method == Method::Post => {
+            let mut raw = vec![];
+            let _ = req.as_reader().read_to_end(&mut raw);
+            let sig = req
+                .headers()
+                .iter()
+                .find(|h| h.field.equiv("x-hub-signature-256"))
+                .map(|h| h.value.as_str().to_string());
+            if !crate::automations::verify_meta_signature(&raw, sig.as_deref()) {
+                text("Bad signature", 401)
+            } else {
+                // Answer Meta at once; process in the background.
+                std::thread::spawn(move || {
+                    let r = serde_json::from_slice::<Value>(&raw)
+                        .map_err(crate::util::Error::from)
+                        .and_then(|b| crate::automations::handle_meta_webhook(&b));
+                    if let Err(e) = r {
+                        eprintln!("[webhook] {e}");
+                    }
+                });
+                text("ok", 200)
+            }
+        }
+        // Tracked links from automation DMs.
+        p if p.starts_with("/l/") && method == Method::Get && is_link_code(&p[3..]) => match crate::automations::click_link(&p[3..]) {
+            Ok(Some(to)) => {
+                let r = empty(302).with_header(header("location", &to));
+                let _ = req.respond(r);
+                return;
+            }
+            _ => text("Not found", 404),
+        },
         p if p.starts_with("/media/") && (method == Method::Get || method == Method::Head) => match serve_media(&p["/media/".len()..]) {
             Ok(Some((file, ct))) => {
                 let r = Response::from_file(file)

@@ -34,12 +34,11 @@ jobs:
         continue-on-error: true
       - name: test
         run: cargo test
-      - name: build (musl; default allocator and mimalloc)
+      - name: build (static musl, mimalloc)
         run: |
           T=target/x86_64-unknown-linux-musl
           mkdir -p out
           cargo build --release --target x86_64-unknown-linux-musl && cp $T/release/siar out/siar
-          cargo build --release --target x86_64-unknown-linux-musl --features mimalloc && cp $T/release/siar out/siar-mimalloc
           if [ "${{ github.event_name }}" = workflow_dispatch ]; then
             # Symbols for profiling (gdb sampling on a dev machine).
             cargo build --profile profiling --target x86_64-unknown-linux-musl && cp $T/profiling/siar profiling-siar

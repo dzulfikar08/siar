@@ -1,5 +1,5 @@
-//! Background loops (src/scheduler.ts): publish due targets, metric snapshots, retention purge.
-//! Automation jobs and comment/DM polling are not ported.
+//! Background loops (src/scheduler.ts): publish due targets, automation jobs, comment/DM polling
+//! for accounts with automations, metric snapshots, retention purge.
 //!
 //! SIAR_SCHEDULER=off: no loops at all. SIAR_SCHEDULER=dry: the loops tick and query what is
 //! due, but nothing is claimed, published or fetched (for side-by-side benchmarks on a copy
@@ -61,6 +61,18 @@ pub fn start(mode: &str) {
     if dry {
         return;
     }
+    // Automation replies and DMs waiting for their human-like delay.
+    every(5_000, 1000, "jobs", || crate::automations::run_jobs(20).map(|_| ()));
+    // Comments and DMs for accounts with automations (webhooks make DMs instant; this is the fallback).
+    let engage_ms = crate::config::env("SIAR_ENGAGE_MS").and_then(|v| v.parse().ok()).unwrap_or(120_000);
+    every(engage_ms, 5_000, "engage", || {
+        for (account, comments, dms) in crate::automations::poll_targets()? {
+            if let Err(e) = crate::automations::poll_account(&account, comments, dms) {
+                log(&format!("poll {account} {e}"));
+            }
+        }
+        Ok(())
+    });
     every(10 * 60_000, 30_000, "metrics", || snapshot_metrics(10).map(|_| ()));
     every(6 * 3_600_000, 60_000, "purge", || purge_stale_data(30 * 86_400_000).map(|_| ()));
 }

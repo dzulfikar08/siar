@@ -18,9 +18,13 @@ base64 = "0.22"
 getrandom = "0.3"
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 unicode-segmentation = "1"
+k256 = { version = "0.13", default-features = false, features = ["schnorr", "std"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
 mimalloc = { version = "0.1", default-features = false, optional = true }
 
 [features]
+default = ["mimalloc"]
 mimalloc = ["dep:mimalloc"]
 
 [profile.release]

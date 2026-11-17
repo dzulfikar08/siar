@@ -30,6 +30,8 @@ pub fn spec() -> OAuthSpec {
         scope_sep: ",",
         extra_auth_params: vec![],
         config_id_env: None,
+        client_auth_basic: false,
+        client_id_param: "client_id",
     }
 }
 
@@ -378,4 +380,54 @@ pub fn comments(ctx: &Ctx, post_id: &str) -> Result<Vec<RemoteComment>> {
             }
         })
         .collect())
+}
+
+pub fn comment_reply(ctx: &Ctx, comment_id: &str, text: &str) -> Result<Value> {
+    let token = ctx.token();
+    let c = id_of(
+        &net::post(format!("{}/me/threads", th()))
+            .bearer(&token)
+            .json(json!({ "media_type": "TEXT", "text": text, "reply_to_id": comment_id }))
+            .get_json()?,
+    );
+    wait(&c, &token)?;
+    net::post(format!("{}/me/threads_publish", th()))
+        .bearer(&token)
+        .json(json!({ "creation_id": c }))
+        .get_json()
+}
+
+pub fn comment_hide(ctx: &Ctx, comment_id: &str, hidden: bool) -> Result<()> {
+    net::post(format!("{}/{comment_id}/manage_reply", th()))
+        .bearer(&ctx.token())
+        .json(json!({ "hide": hidden }))
+        .send()?;
+    Ok(())
+}
+
+pub fn comment_remove(ctx: &Ctx, comment_id: &str) -> Result<()> {
+    net::req("DELETE", format!("{}/{comment_id}", th())).bearer(&ctx.token()).send()?;
+    Ok(())
+}
+
+pub fn search(ctx: &Ctx, q: &str, kind: Option<&str>, limit: i64) -> Result<Vec<RemotePost>> {
+    let r = net::get(format!("{}/keyword_search", th()))
+        .bearer(&ctx.token())
+        .query(&[
+            ("q", Some(q.into())),
+            ("search_type", Some(if kind == Some("recent") { "RECENT" } else { "TOP" }.into())),
+            ("fields", Some("id,text,media_type,permalink,timestamp,username".into())),
+            ("limit", Some(limit.min(100).to_string())),
+        ])
+        .get_json()?;
+    Ok(r["data"].as_array().into_iter().flatten().map(map_post).collect())
+}
+
+pub fn context(ctx: &Ctx, id: &str) -> Result<(RemotePost, Vec<RemoteComment>)> {
+    let p = net::get(format!("{}/{id}", th()))
+        .bearer(&ctx.token())
+        .query(&[("fields", Some("id,text,media_type,permalink,timestamp,username".into()))])
+        .get_json()?;
+    let replies = comments(ctx, id).unwrap_or_default();
+    Ok((map_post(&p), replies))
 }
