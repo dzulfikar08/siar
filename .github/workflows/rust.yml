@@ -34,27 +34,30 @@ jobs:
         continue-on-error: true
       - name: test
         run: cargo test
-      - name: build (musl, opt-level s and z)
+      - name: build (musl; opt-level s, s + mimalloc, 3 + mimalloc)
         run: |
-          cargo build --release --target x86_64-unknown-linux-musl
-          cargo build --profile release-z --target x86_64-unknown-linux-musl
+          T=target/x86_64-unknown-linux-musl
+          mkdir -p out
+          cargo build --release --target x86_64-unknown-linux-musl && cp $T/release/siar out/siar
+          cargo build --release --target x86_64-unknown-linux-musl --features mimalloc && cp $T/release/siar out/siar-mimalloc
+          cargo build --profile release-fast --target x86_64-unknown-linux-musl --features mimalloc && cp $T/release-fast/siar out/siar-fast-mimalloc
       - name: size
         run: |
-          ls -l target/x86_64-unknown-linux-musl/release/siar target/x86_64-unknown-linux-musl/release-z/siar
-          file target/x86_64-unknown-linux-musl/release/siar
+          ls -l out/
+          file out/siar
           {
             echo "### Binary size"
-            echo "| profile | bytes | MiB |"
+            echo "| variant | bytes | MiB |"
             echo "|---|---|---|"
-            for p in release release-z; do
-              b=$(stat -c %s target/x86_64-unknown-linux-musl/$p/siar)
-              echo "| $p | $b | $(echo "scale=2; $b/1048576" | bc) |"
+            for f in out/*; do
+              b=$(stat -c %s $f)
+              echo "| $(basename $f) | $b | $(awk "BEGIN{printf \"%.2f\", $b/1048576}") |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
       - name: smoke test
         run: |
           export SIAR_DATA_DIR=$(mktemp -d) SIAR_VAULT_KEY=$(head -c32 /dev/urandom | base64) SIAR_API_TOKEN=smoke-token-0123456789abcdef SIAR_PORT=18787 SIAR_SCHEDULER=off
-          bin=target/x86_64-unknown-linux-musl/release/siar
+          bin=out/siar
           $bin keygen | cut -d= -f1
           $bin serve & pid=$!
           sleep 1
@@ -68,11 +71,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: siar-x86_64-linux-musl
-          path: |
-            rust/target/x86_64-unknown-linux-musl/release/siar
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: siar-x86_64-linux-musl-opt-z
-          path: rust/target/x86_64-unknown-linux-musl/release-z/siar
+          path: rust/out/
           if-no-files-found: error

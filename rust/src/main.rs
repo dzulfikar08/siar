@@ -18,6 +18,12 @@ mod util;
 mod validate;
 mod vault;
 
+// musl's allocator is small but slow under allocation-heavy work (JSON building); the
+// `mimalloc` feature swaps it in to compare.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     let cmd = std::env::args().nth(1).unwrap_or_else(|| "mcp".into());
     let scheduler_mode = config::env("SIAR_SCHEDULER").unwrap_or_default();

@@ -160,6 +160,7 @@ pub fn open_at(path: &std::path::Path) -> Result<Connection> {
     let mut c = Connection::open(path)?;
     c.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
     migrate(&mut c)?;
+    c.set_prepared_statement_cache_capacity(64);
     Ok(c)
 }
 
@@ -208,7 +209,7 @@ pub fn tx<T>(immediate: bool, f: impl FnOnce(&Connection) -> Result<T>) -> Resul
 }
 
 pub fn opt_row<T>(c: &Connection, sql: &str, params: impl rusqlite::Params, f: impl FnOnce(&Row) -> rusqlite::Result<T>) -> Result<Option<T>> {
-    Ok(c.query_row(sql, params, f).optional()?)
+    Ok(c.prepare_cached(sql)?.query_row(params, f).optional()?)
 }
 
 pub fn rows<T>(c: &Connection, sql: &str, params: impl rusqlite::Params, f: impl FnMut(&Row) -> rusqlite::Result<T>) -> Result<Vec<T>> {

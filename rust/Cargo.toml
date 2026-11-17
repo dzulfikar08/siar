@@ -18,6 +18,10 @@ base64 = "0.22"
 getrandom = "0.3"
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 unicode-segmentation = "1"
+mimalloc = { version = "0.1", default-features = false, optional = true }
+
+[features]
+mimalloc = ["dep:mimalloc"]
 
 [profile.release]
 opt-level = "s"
@@ -26,7 +30,7 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# Same as release but optimised for size harder; CI builds both to compare.
-[profile.release-z]
+# Same as release but optimised for speed; CI builds both to compare.
+[profile.release-fast]
 inherits = "release"
-opt-level = "z"
+opt-level = 3
