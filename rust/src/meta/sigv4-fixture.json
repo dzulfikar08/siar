@@ -1,0 +1,9 @@
+{
+ "url": "https://acc.r2.cloudflarestorage.com/bucket/med_x/a%20b.jpg",
+ "headers": {
+  "x-amz-date": "20261117T010203Z",
+  "x-amz-content-sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+  "content-type": "image/jpeg",
+  "authorization": "AWS4-HMAC-SHA256 Credential=AKID/20261117/auto/s3/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=6e70bc0d5bdf4b505a30fbc2835b540374ad0d745fb5393b885abb583abff515"
+ }
+}

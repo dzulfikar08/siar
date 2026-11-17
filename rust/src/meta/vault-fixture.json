@@ -1,0 +1,10 @@
+{
+ "key_base64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+ "key_hex": "0707070707070707070707070707070707070707070707070707070707070707",
+ "blob_hex": "01b02328cc90401c2be6947720cce567ee44b1e05fa5751ac29033a6ca53e0b23aa02017464c07621d33b6f5307e5046d572ddf217ef8668fe4b9e3f1cf574387e2073ac4e9f4a146315f40b4725d266e3ebda506bd9",
+ "plain": {
+  "access_token": "tok-ä-✓",
+  "refresh_token": "r1",
+  "n": 42
+ }
+}
