@@ -183,7 +183,13 @@ the current one. Renewal reminders: a banner in the dashboard during the last 7 
 to the workspace owner 7 days before the end, 1 day before, and on expiry (sent once per period,
 recorded in `mail_log`; checked hourly). Without the mail settings they are only logged.
 1. In the DOKU Back Office, take the Client ID and Secret Key (`DOKU_CLIENT_ID`, `DOKU_SECRET_KEY`).
-2. The notification URL is sent with each checkout (`additional_info.override_notification_url` = `<SIAR_PUBLIC_URL>/billing/doku/notify`); no Back Office setting is needed.
+2. Set the Payment Notification URL `<SIAR_PUBLIC_URL>/billing/doku/notify` in the Back Office for every
+   channel offered (Settings → Payment Settings → Virtual Account / QRIS / e-Wallet → Configure, the
+   Non-SNAP rows). Each checkout also sends it as `additional_info.override_notification_url`, but in
+   sandbox (17 Nov 2026) DOKU sent nothing for a channel whose URL was empty; with the URL set, the
+   notification arrived. Settings → Notification → HTTP Notifications lists deliveries and can resend.
+   Sandbox payments: the Jokul simulator at `https://sandbox.doku.com/integration/simulator/` (non-SNAP
+   VA rows); the sandbox had no QRIS simulator.
 3. Test with `DOKU_SERVER=sandbox` first.
 
 Requests and notifications use DOKU's non-SNAP signature: `HMACSHA256=` + base64 HMAC-SHA256 of

@@ -267,7 +267,7 @@ pub fn doku_checkout(tenant_id: &str, plan: &Plan, months: i64, method: &str, em
         },
         "payment": { "payment_due_date": 60, "payment_method_types": [method] },
         "customer": { "id": tenant_id, "email": email.unwrap_or("") },
-        // Per-request notification URL, so the Back Office needs no per-channel setup.
+        // Also set per channel in the Back Office: DOKU sends nothing for a channel without one.
         "additional_info": { "override_notification_url": format!("{}/billing/doku/notify", config().public_url) },
     })
     .to_string();
