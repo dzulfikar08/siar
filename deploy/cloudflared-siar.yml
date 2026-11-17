@@ -1,0 +1,11 @@
+# Cloudflare Tunnel config for siar. Copy to /etc/cloudflared/siar.yml and fill in:
+#   cloudflared tunnel create siar        -> prints the tunnel id and writes its credentials json
+#   cloudflared tunnel route dns siar siar.example.com
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+ingress:
+  - hostname: siar.example.com
+    service: http://127.0.0.1:8787
+    originRequest:
+      connectTimeout: 10s
+  - service: http_status:404

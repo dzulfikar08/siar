@@ -1,0 +1,12 @@
+[Unit]
+Description=Cloudflare Tunnel for siar
+After=network-online.target siar.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/cloudflared --no-autoupdate --config /etc/cloudflared/siar.yml tunnel run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

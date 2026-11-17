@@ -1,0 +1,25 @@
+[Unit]
+Description=siar social media scheduler (MCP server)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=siar
+Group=siar
+WorkingDirectory=/opt/siar/app
+EnvironmentFile=/opt/siar/.env
+Environment=SIAR_DATA_DIR=/opt/siar/data
+ExecStart=/usr/local/bin/bun src/index.ts serve
+Restart=always
+RestartSec=3
+# Let a publish in flight finish before a stop.
+TimeoutStopSec=60
+MemoryMax=400M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/siar/data
+
+[Install]
+WantedBy=multi-user.target
