@@ -178,7 +178,7 @@ the current one. Renewal reminders: a banner in the dashboard during the last 7 
 to the workspace owner 7 days before the end, 1 day before, and on expiry (sent once per period,
 recorded in `mail_log`; checked hourly). Without the mail settings they are only logged.
 1. In the DOKU Back Office, take the Client ID and Secret Key (`DOKU_CLIENT_ID`, `DOKU_SECRET_KEY`).
-2. Set the notification URL for Checkout to `https://app.siar.diatur.com/billing/doku/notify`.
+2. The notification URL is sent with each checkout (`additional_info.override_notification_url` = `<SIAR_PUBLIC_URL>/billing/doku/notify`); no Back Office setting is needed.
 3. Test with `DOKU_SERVER=sandbox` first.
 
 Requests and notifications use DOKU's non-SNAP signature: `HMACSHA256=` + base64 HMAC-SHA256 of
