@@ -52,4 +52,27 @@ writeFileSync(join(out, "sigv4-fixture.json"), `${JSON.stringify(signed, null, 1
 const { db } = await import("../../src/db.ts");
 const schema = (db.query("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name").all() as { sql: string }[]);
 writeFileSync(join(out, "schema.json"), `${JSON.stringify(schema, null, 1)}\n`);
+// Text handling checked against the TS on tricky inputs (combining marks, Indic scripts, odd spaces).
+const { escapeLittle } = await import("../../src/providers/linkedin.ts");
+const { matches } = await import("../../src/automations.ts");
+const { countChars } = await import("../../src/validate.ts");
+const texts = [
+  "Hi (team) #rust @me",
+  "C# and a#b #CMMS_2",
+  "#ét with e + combining acute (decomposed): #e\u0301t",
+  "Hindi #नमस्ते and #हिंदी_भाषा",
+  "Thai #ภาษาไทย, Arabic #مرحبا٣ and digits #١٢٣",
+  "Roman numeral #Ⅻ and superscript #x²",
+  "no-break\u00a0#tag, thin\u2009#tag2, feff\ufeff#tag3, nel\u0085#tag4",
+  "emoji #🔥fire #fire🔥 ##double #_under",
+  "mark at start #\u0301x",
+];
+const kws = ["info", "harga", "नमस्ते", "é", "e\u0301"];
+const fixture = texts.map((t) => ({
+  text: t,
+  escape: escapeLittle(t),
+  matches: Object.fromEntries(kws.map((k) => [k, matches({ keywords: [k], match: "contains" }, t)])),
+  counts: { codepoints: countChars(t, "codepoints"), graphemes: countChars(t, "graphemes"), twitter: countChars(t, "twitter"), utf16: countChars(t, "utf16") },
+}));
+writeFileSync(join(out, "text-fixture.json"), `${JSON.stringify(fixture, null, 1)}\n`);
 console.log(`wrote ${tools.length} tools, ${platforms.length} platforms`);

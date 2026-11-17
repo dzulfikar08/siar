@@ -1,0 +1,155 @@
+[
+ {
+  "text": "Hi (team) #rust @me",
+  "escape": "Hi \\(team\\) {hashtag|\\#|rust} \\@me",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": false,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 19,
+   "graphemes": 19,
+   "twitter": 19,
+   "utf16": 19
+  }
+ },
+ {
+  "text": "C# and a#b #CMMS_2",
+  "escape": "C\\# and a\\#b {hashtag|\\#|CMMS\\_2}",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": false,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 18,
+   "graphemes": 18,
+   "twitter": 18,
+   "utf16": 18
+  }
+ },
+ {
+  "text": "#ét with e + combining acute (decomposed): #ét",
+  "escape": "{hashtag|\\#|ét} with e + combining acute \\(decomposed\\): {hashtag|\\#|e}́t",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": false,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 47,
+   "graphemes": 46,
+   "twitter": 47,
+   "utf16": 47
+  }
+ },
+ {
+  "text": "Hindi #नमस्ते and #हिंदी_भाषा",
+  "escape": "Hindi {hashtag|\\#|नमस}्ते and {hashtag|\\#|ह}िंदी\\_भाषा",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": true,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 29,
+   "graphemes": 21,
+   "twitter": 29,
+   "utf16": 29
+  }
+ },
+ {
+  "text": "Thai #ภาษาไทย, Arabic #مرحبا٣ and digits #١٢٣",
+  "escape": "Thai {hashtag|\\#|ภาษาไทย}, Arabic {hashtag|\\#|مرحبا٣} and digits {hashtag|\\#|١٢٣}",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": false,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 45,
+   "graphemes": 45,
+   "twitter": 45,
+   "utf16": 45
+  }
+ },
+ {
+  "text": "Roman numeral #Ⅻ and superscript #x²",
+  "escape": "Roman numeral {hashtag|\\#|Ⅻ} and superscript {hashtag|\\#|x²}",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": false,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 36,
+   "graphemes": 36,
+   "twitter": 37,
+   "utf16": 36
+  }
+ },
+ {
+  "text": "no-break #tag, thin #tag2, feff﻿#tag3, nel#tag4",
+  "escape": "no-break {hashtag|\\#|tag}, thin {hashtag|\\#|tag2}, feff﻿{hashtag|\\#|tag3}, nel\\#tag4",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": false,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 48,
+   "graphemes": 48,
+   "twitter": 49,
+   "utf16": 48
+  }
+ },
+ {
+  "text": "emoji #🔥fire #fire🔥 ##double #_under",
+  "escape": "emoji \\#🔥fire {hashtag|\\#|fire}🔥 \\#\\#double {hashtag|\\#|\\_under}",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": false,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 36,
+   "graphemes": 36,
+   "twitter": 38,
+   "utf16": 38
+  }
+ },
+ {
+  "text": "mark at start #́x",
+  "escape": "mark at start \\#́x",
+  "matches": {
+   "info": false,
+   "harga": false,
+   "नमस्ते": false,
+   "é": false,
+   "é": false
+  },
+  "counts": {
+   "codepoints": 17,
+   "graphemes": 16,
+   "twitter": 17,
+   "utf16": 17
+  }
+ }
+]

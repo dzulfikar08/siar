@@ -238,3 +238,29 @@ mod tests {
         assert_eq!(count_chars("a😀", "codepoints"), 2);
     }
 }
+
+#[cfg(test)]
+mod ts_fixture {
+    use serde_json::Value;
+
+    /// Escaping, keyword matching and counting on tricky inputs, against the TS output
+    /// (rust/scripts/dump-meta.ts writes the fixture).
+    #[test]
+    fn text_handling_matches_the_ts() {
+        let f: Value = serde_json::from_str(include_str!("meta/text-fixture.json")).unwrap();
+        for case in f.as_array().unwrap() {
+            let t = case["text"].as_str().unwrap();
+            assert_eq!(crate::providers::linkedin::escape_little(t), case["escape"].as_str().unwrap(), "escape {t:?}");
+            for (kw, want) in case["matches"].as_object().unwrap() {
+                assert_eq!(
+                    crate::automations::matches(&[kw.clone()], "contains", Some(t)),
+                    want.as_bool().unwrap(),
+                    "matches {kw:?} in {t:?}"
+                );
+            }
+            for (how, want) in case["counts"].as_object().unwrap() {
+                assert_eq!(super::count_chars(t, how) as u64, want.as_u64().unwrap(), "{how} of {t:?}");
+            }
+        }
+    }
+}
