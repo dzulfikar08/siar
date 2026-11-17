@@ -68,11 +68,18 @@ pub fn handle(msg: &Value) -> Option<Value> {
                 None | Some(Value::Null) => Value::Object(Map::new()),
                 Some(a) => a.clone(),
             };
+            let t0 = std::time::Instant::now();
             Some(match call_tool(&name, &args) {
                 Ok(result) => {
+                    let t1 = t0.elapsed();
                     let text = serde_json::to_string_pretty(&result).unwrap_or_default();
+                    let t2 = t0.elapsed();
                     let structured = if result.is_array() { json!({ "items": result }) } else { result };
-                    ok(id, json!({ "content": [{ "type": "text", "text": text }], "structuredContent": structured }))
+                    let out = ok(id, json!({ "content": [{ "type": "text", "text": text }], "structuredContent": structured }));
+                    if crate::config::env("SIAR_TIMING").is_some() {
+                        eprintln!("[timing] {name}: tool {:?} pretty {:?} wrap {:?}", t1, t2 - t1, t0.elapsed() - t2);
+                    }
+                    out
                 }
                 Err(e) => ok(id, json!({ "content": [{ "type": "text", "text": e.to_string() }], "isError": true })),
             })

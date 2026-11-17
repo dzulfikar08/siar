@@ -192,6 +192,7 @@ fn route(mut req: Request) {
             } else if method != Method::Post {
                 empty(405)
             } else {
+                let t0 = std::time::Instant::now();
                 let mut body = String::new();
                 let parsed = req
                     .as_reader()
@@ -203,10 +204,28 @@ fn route(mut req: Request) {
                         &serde_json::json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": "Parse error" } }),
                         400,
                     ),
-                    Some(v) => match handle_batch(&v) {
-                        Some(out) => json_resp(&out, 200),
-                        None => empty(202),
-                    },
+                    Some(v) => {
+                        let t1 = t0.elapsed();
+                        let out = handle_batch(&v);
+                        let t2 = t0.elapsed();
+                        let r = match out {
+                            Some(out) => json_resp(&out, 200),
+                            None => empty(202),
+                        };
+                        if crate::config::env("SIAR_TIMING").is_some() {
+                            let t3 = t0.elapsed();
+                            let _ = req.respond(r);
+                            eprintln!(
+                                "[timing] read+parse {:?} handle {:?} serialize {:?} respond {:?}",
+                                t1,
+                                t2 - t1,
+                                t3 - t2,
+                                t0.elapsed() - t3
+                            );
+                            return;
+                        }
+                        r
+                    }
                 }
             }
         }
