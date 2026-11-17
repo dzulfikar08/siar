@@ -92,16 +92,21 @@ type Resp = Response<std::io::Cursor<Vec<u8>>>;
 
 fn text(body: &str, status: u16) -> Resp {
     Response::from_string(format!("{body}\n"))
+        .with_chunked_threshold(usize::MAX)
         .with_status_code(status)
         .with_header(header("content-type", "text/plain; charset=utf-8"))
 }
 
 fn html(title: &str, body: &str) -> Resp {
-    Response::from_string(page_html(title, body)).with_header(header("content-type", "text/html; charset=utf-8"))
+    Response::from_string(page_html(title, body))
+        .with_chunked_threshold(usize::MAX)
+        .with_header(header("content-type", "text/html; charset=utf-8"))
 }
 
 fn json_resp(v: &Value, status: u16) -> Resp {
-    Response::from_string(v.to_string())
+    // One write with a Content-Length instead of 8 KB chunks.
+    Response::from_data(serde_json::to_vec(v).unwrap_or_default())
+        .with_chunked_threshold(usize::MAX)
         .with_status_code(status)
         .with_header(header("content-type", "application/json;charset=utf-8"))
 }
@@ -263,6 +268,7 @@ fn route(mut req: Request) {
         p if p.starts_with("/media/") && (method == Method::Get || method == Method::Head) => match serve_media(&p["/media/".len()..]) {
             Ok(Some((file, ct))) => {
                 let r = Response::from_file(file)
+                    .with_chunked_threshold(usize::MAX)
                     .with_header(header("cache-control", "public, max-age=86400"))
                     .with_header(header("content-type", ct));
                 let _ = req.respond(r);

@@ -31,11 +31,21 @@ pub fn tools() -> &'static Value {
 }
 
 fn ok(id: Option<&Value>, result: Value) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id.cloned().unwrap_or(Value::Null), "result": result })
+    // Built by hand: json!() with a Value inside deep-copies it through serde.
+    Obj::new()
+        .set("jsonrpc", "2.0")
+        .set("id", id.cloned().unwrap_or(Value::Null))
+        .set("result", result)
+        .build()
 }
 
 fn fail(id: Option<&Value>, code: i64, message: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id.cloned().unwrap_or(Value::Null), "error": { "code": code, "message": message } })
+    let error = Obj::new().set("code", code).set("message", message).build();
+    Obj::new()
+        .set("jsonrpc", "2.0")
+        .set("id", id.cloned().unwrap_or(Value::Null))
+        .set("error", error)
+        .build()
 }
 
 pub fn handle(msg: &Value) -> Option<Value> {
@@ -58,7 +68,7 @@ pub fn handle(msg: &Value) -> Option<Value> {
             ))
         }
         "ping" => Some(ok(id, json!({}))),
-        "tools/list" => Some(ok(id, json!({ "tools": tools() }))),
+        "tools/list" => Some(ok(id, Obj::new().set("tools", tools().clone()).build())),
         "tools/call" => {
             let name = params.get("name").map(js_string).unwrap_or_else(|| "undefined".into());
             if !tools().as_array().map(|a| a.iter().any(|t| t["name"] == name.as_str())).unwrap_or(false) {
@@ -74,14 +84,18 @@ pub fn handle(msg: &Value) -> Option<Value> {
                     let t1 = t0.elapsed();
                     let text = serde_json::to_string_pretty(&result).unwrap_or_default();
                     let t2 = t0.elapsed();
-                    let structured = if result.is_array() { json!({ "items": result }) } else { result };
-                    let out = ok(id, json!({ "content": [{ "type": "text", "text": text }], "structuredContent": structured }));
+                    let structured = if result.is_array() { Obj::new().set("items", result).build() } else { result };
+                    let content = vec![Obj::new().set("type", "text").set("text", text).build()];
+                    let out = ok(id, Obj::new().set("content", content).set("structuredContent", structured).build());
                     if crate::config::env("SIAR_TIMING").is_some() {
                         eprintln!("[timing] {name}: tool {:?} pretty {:?} wrap {:?}", t1, t2 - t1, t0.elapsed() - t2);
                     }
                     out
                 }
-                Err(e) => ok(id, json!({ "content": [{ "type": "text", "text": e.to_string() }], "isError": true })),
+                Err(e) => {
+                    let content = vec![Obj::new().set("type", "text").set("text", e.to_string()).build()];
+                    ok(id, Obj::new().set("content", content).set("isError", true).build())
+                }
             })
         }
         "resources/list" => Some(ok(id, json!({ "resources": [] }))),
