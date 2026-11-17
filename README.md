@@ -116,6 +116,19 @@ claude mcp add --transport http siar https://siar.example.com/mcp --header "Auth
 
 If you run both against one data directory, set `SIAR_SCHEDULER=off` on the stdio one. Claims are atomic either way.
 
+**CLI** (for agents that run shell commands: Claude Code, Codex, OpenClaw). Every MCP tool is also a command that prints JSON:
+
+```sh
+ln -s "$PWD/src/index.ts" ~/.local/bin/siar   # puts `siar` on your PATH
+export SIAR_URL=https://siar.example.com SIAR_API_TOKEN=...   # talk to your server
+siar tools                     # list the tools
+siar help schedule-post        # arguments of one tool
+siar schedule-post --content @post.md --targets '["acc_…"]' --at 2026-11-20T08:00:00+07:00
+siar stage-media --path ./cover.jpg --alt "Dashboard screenshot"   # uploads the file to the server
+```
+
+The token stays in the environment, so it never enters the model's context. Without `SIAR_URL` the commands run locally against `SIAR_DATA_DIR` (no scheduler). [`skills/siar/SKILL.md`](skills/siar/SKILL.md) teaches an agent the workflow: copy it to `~/.claude/skills/siar/` for Claude Code, or upload it to ClawHub for OpenClaw.
+
 `deploy/` has a hardened systemd unit, a Cloudflare Tunnel config template and `deploy.sh <ssh-host>`, which ships the current commit to `/opt/siar/app` and restarts the service. It uses about 35 MB of RAM idle.
 
 Set `SIAR_OPERATOR`, `SIAR_OPERATOR_LOCATION` and `SIAR_CONTACT`: siar serves a home page, `/privacy` and `/terms` with them, and Meta, Google and LinkedIn ask for those URLs when you register your apps.

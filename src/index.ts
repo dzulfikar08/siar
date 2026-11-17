@@ -21,7 +21,14 @@ switch (cmd) {
     console.log(`SIAR_VAULT_KEY=${generateKey()}`);
     console.log(`SIAR_API_TOKEN=${generateKey().replace(/[^a-zA-Z0-9]/g, "")}`);
     break;
-  default:
-    console.error("usage: siar [mcp | serve | keygen]");
-    process.exit(1);
+  default: {
+    // Anything else is the CLI: `siar tools`, `siar help <tool>`, `siar <tool> --arg value`.
+    const { runCli } = await import("./cli.ts");
+    try {
+      process.exit(await runCli(process.argv.slice(2)));
+    } catch (e) {
+      console.error(`siar: ${(e as Error).message}`);
+      process.exit(1);
+    }
+  }
 }
