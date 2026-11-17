@@ -212,6 +212,12 @@ fn post_row(id: &str) -> Result<Option<PostRow>> {
     db::with(|c| db::opt_row(c, &format!("SELECT {} FROM posts WHERE id = ?", PostRow::COLS), [id], PostRow::from))
 }
 
+type TargetWithAccount = (TargetRow, String, String, Option<String>);
+
+fn target_with_account(r: &rusqlite::Row) -> rusqlite::Result<TargetWithAccount> {
+    Ok((TargetRow::from(r)?, r.get(13)?, r.get(14)?, r.get(15)?))
+}
+
 pub fn get_post(id: &str) -> Result<Value> {
     let (p, targets) = db::with(|c| {
         let Some(p) = db::opt_row(c, &format!("SELECT {} FROM posts WHERE id = ?", PostRow::COLS), [id], PostRow::from)? else {
@@ -224,21 +230,14 @@ pub fn get_post(id: &str) -> Result<Value> {
                 TargetRow::COLS
             ),
             [id],
-            |r| {
-                Ok((
-                    TargetRow::from(r)?,
-                    r.get::<_, String>(13)?,
-                    r.get::<_, String>(14)?,
-                    r.get::<_, Option<String>>(15)?,
-                ))
-            },
+            target_with_account,
         )?;
         Ok((p, targets))
     })?;
     Ok(post_json(&p, &targets))
 }
 
-fn post_json(p: &PostRow, targets: &[(TargetRow, String, String, Option<String>)]) -> Value {
+fn post_json(p: &PostRow, targets: &[TargetWithAccount]) -> Value {
     let targets: Vec<Value> = targets
         .iter()
         .map(|(t, platform, name, handle)| {
@@ -308,10 +307,37 @@ pub fn list_posts(status: Option<String>, from: Option<i64>, to: Option<i64>, ac
         format!("WHERE {}", wh.join(" AND "))
     };
     let sql = format!("SELECT p.id FROM posts p {w} ORDER BY COALESCE(p.scheduled_at, p.created_at) DESC LIMIT ?");
-    let ids = db::with(|c| db::rows(c, &sql, rusqlite::params_from_iter(args.iter()), |r| r.get::<_, String>(0)))?;
+    // The TS version calls getPost per row, and each one scans `targets` (no index on post_id).
+    // Here all targets of the page come from one scan; the output is the same.
+    let (posts, targets) = db::with(|c| {
+        let ids = db::rows(c, &sql, rusqlite::params_from_iter(args.iter()), |r| r.get::<_, String>(0))?;
+        if ids.is_empty() {
+            return Ok((vec![], vec![]));
+        }
+        let marks = vec!["?"; ids.len()].join(",");
+        let posts = db::rows(
+            c,
+            &format!("SELECT {} FROM posts WHERE id IN ({marks})", PostRow::COLS),
+            rusqlite::params_from_iter(ids.iter()),
+            PostRow::from,
+        )?;
+        let targets = db::rows(
+            c,
+            &format!(
+                "SELECT {}, a.platform, a.name AS account_name, a.handle FROM targets t JOIN accounts a ON a.id = t.account_id WHERE post_id IN ({marks})",
+                TargetRow::COLS
+            ),
+            rusqlite::params_from_iter(ids.iter()),
+            target_with_account,
+        )?;
+        // Keep the page order of `ids`.
+        let posts: Vec<PostRow> = ids.iter().filter_map(|id| posts.iter().find(|p| &p.id == id).cloned()).collect();
+        Ok((posts, targets))
+    })?;
     let mut out = vec![];
-    for id in ids {
-        let mut p = get_post(&id)?;
+    for post in &posts {
+        let mine: Vec<_> = targets.iter().filter(|t| t.0.post_id == post.id).cloned().collect();
+        let mut p = post_json(post, &mine);
         if let Some(Value::String(content)) = p.get_mut("content") {
             let units: Vec<u16> = content.encode_utf16().collect();
             if units.len() > 200 {
