@@ -203,10 +203,12 @@ fn route(mut req: Request) {
             if !authorized(&req) {
                 Response::from_string("Unauthorized")
                     .with_status_code(401)
+                    .with_header(header("content-type", "text/plain;charset=utf-8"))
                     .with_header(header("www-authenticate", "Bearer"))
             } else if method == Method::Get {
                 Response::from_string("SSE stream not offered; POST JSON-RPC here")
                     .with_status_code(405)
+                    .with_header(header("content-type", "text/plain;charset=utf-8"))
                     .with_header(header("allow", "POST"))
             } else if method == Method::Delete {
                 empty(204)
