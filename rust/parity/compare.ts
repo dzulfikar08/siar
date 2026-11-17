@@ -251,3 +251,5 @@ const all = (await (await fetch(`${tsUrl}/mcp`, { method: "POST", headers: { aut
 const missing = all.result.tools.map((t: any) => t.name).filter((t: string) => !tools.has(t));
 console.log(`${same}/${n} identical; tools covered ${tools.size}/${all.result.tools.length}${missing.length ? ` (missing: ${missing.join(", ")})` : ""}`);
 console.log(`${diffs.length} differences (listed above)`);
+const unexpected = diffs.filter((d) => !d.startsWith("(expected)")).length;
+if (unexpected || missing.length) process.exit(1);

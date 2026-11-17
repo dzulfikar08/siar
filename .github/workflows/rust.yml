@@ -70,6 +70,12 @@ jobs:
           grep -E 'VmRSS|VmHWM' /proc/$pid/status
           echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_ideas","arguments":{}}}' | $bin mcp | head -c 400; echo
           kill $pid
+      - uses: oven-sh/setup-bun@v2
+      - name: single-tenant regression (TS vs Rust parity, every tool)
+        run: parity/run.sh out/siar
+      - name: hosted memory with 1, 50 and 500 tenants
+        run: |
+          parity/tenants-rss.sh out/siar | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: siar-x86_64-linux-musl
