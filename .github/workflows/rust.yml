@@ -77,6 +77,10 @@ jobs:
           printf 'Line one\nLine two\n' > $cli/body.md
           $bin create-idea --title cli-local --body @$cli/body.md > $cli/idea.json && grep -q 'Line two' $cli/idea.json
           if $bin no-such-tool 2> $cli/err.txt; then exit 1; fi; grep -q 'Unknown tool' $cli/err.txt
+          # A reader that stops early (| head) must not make siar panic: 300 KB of output, pipefail on.
+          head -c 300000 /dev/zero | tr '\0' 'a' > $cli/big.md
+          $bin create-idea --title pipe --body @$cli/big.md 2> $cli/pipe-err.txt | head -c 20 > /dev/null
+          test ! -s $cli/pipe-err.txt
           printf '\x89PNG\r\n\x1a\n' > $cli/t.png && head -c 200 /dev/urandom >> $cli/t.png
           (
             export SIAR_URL=http://127.0.0.1:18787 SIAR_DATA_DIR=$(mktemp -d)

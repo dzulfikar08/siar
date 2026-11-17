@@ -34,6 +34,21 @@ Examples:
   siar schedule-post --json @post.json --at 2026-11-20T08:00:00+07:00
   siar stage-media --path ./cover.jpg --alt \"Screenshot of the dashboard\"";
 
+/// `println!` that treats a closed pipe (`siar tools | head`) as the reader being done: exit 0
+/// quietly instead of panicking.
+macro_rules! say {
+    ($($t:tt)*) => {{
+        use std::io::Write;
+        let mut out = std::io::stdout().lock();
+        if let Err(e) = writeln!(out, $($t)*).and_then(|_| out.flush()) {
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                std::process::exit(0);
+            }
+            return Err(e.into());
+        }
+    }};
+}
+
 enum Backend {
     Local,
     Remote { endpoint: String, token: String },
@@ -236,12 +251,12 @@ fn find_tool(backend: &Backend, asked: &str) -> Result<Value> {
 /// The CLI entry point for anything that isn't `mcp`, `serve` or `keygen`.
 pub fn run(argv: &[String]) -> Result<()> {
     let Some(first) = argv.first().map(String::as_str).filter(|f| !matches!(*f, "--help" | "-h")) else {
-        println!("{HELP}");
+        say!("{HELP}");
         return Ok(());
     };
     let rest = &argv[1..];
     if first == "help" && rest.is_empty() {
-        println!("{HELP}");
+        say!("{HELP}");
         return Ok(());
     }
     let backend = Backend::from_env()?;
@@ -254,20 +269,20 @@ pub fn run(argv: &[String]) -> Result<()> {
             let desc = t["description"].as_str().unwrap_or("");
             // First sentence only.
             let short = desc.find(". ").map(|i| &desc[..=i]).unwrap_or(desc);
-            println!("{name:width$}  {short}");
+            say!("{name:width$}  {short}");
         }
         return Ok(());
     }
 
     if first == "help" {
-        println!("{}", usage_for(&find_tool(&backend, &rest[0])?));
+        say!("{}", usage_for(&find_tool(&backend, &rest[0])?));
         return Ok(());
     }
 
     let name = first.replace('-', "_");
     let mut args = parse_args(rest)?;
     if args.get("help") == Some(&Value::Bool(true)) {
-        println!("{}", usage_for(&find_tool(&backend, first)?));
+        say!("{}", usage_for(&find_tool(&backend, first)?));
         return Ok(());
     }
 
@@ -288,8 +303,8 @@ pub fn run(argv: &[String]) -> Result<()> {
 
     let result = backend.call(&name, Value::Object(args))?;
     match result {
-        Value::String(s) => println!("{s}"),
-        v => println!("{}", serde_json::to_string_pretty(&v)?),
+        Value::String(s) => say!("{s}"),
+        v => say!("{}", serde_json::to_string_pretty(&v)?),
     }
     Ok(())
 }
