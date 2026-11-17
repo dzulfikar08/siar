@@ -3,6 +3,7 @@
 
 pub mod accounts;
 pub mod automations;
+pub mod cli;
 pub mod config;
 pub mod db;
 pub mod engage;

@@ -1,6 +1,6 @@
-//! siar command line: `serve`, `mcp` (stdio) and `keygen`.
+//! siar command line: `serve`, `mcp` (stdio), `keygen`, and every MCP tool as a command (cli.rs).
 
-use siar::{config, db, mcp, scheduler, server, vault};
+use siar::{cli, config, db, mcp, scheduler, server, vault};
 
 // musl's allocator is small but slow with large JSON responses (big allocations are mmapped and
 // unmapped on every request); mimalloc is the default. Build with --no-default-features to compare.
@@ -33,10 +33,8 @@ fn main() {
             );
             Ok(())
         }
-        _ => {
-            eprintln!("usage: siar [mcp | serve | keygen]");
-            std::process::exit(1);
-        }
+        // Anything else is the CLI: `siar tools`, `siar help <tool>`, `siar <tool> --arg value`.
+        _ => cli::run(&std::env::args().skip(1).collect::<Vec<_>>()),
     };
     if let Err(e) = result {
         eprintln!("{e}");

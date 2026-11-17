@@ -69,6 +69,22 @@ jobs:
             -d '[{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"status","arguments":{}}},{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_idea","arguments":{"title":"smoke"}}}]' | head -c 1500; echo
           grep -E 'VmRSS|VmHWM' /proc/$pid/status
           echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_ideas","arguments":{}}}' | $bin mcp | head -c 400; echo
+          # CLI: local, then remote against the server above (file upload and a wrong token too).
+          cli=$(mktemp -d)
+          $bin --help > $cli/help.txt && head -3 $cli/help.txt
+          $bin tools > $cli/tools.txt && test "$(wc -l < $cli/tools.txt)" -ge 40 && head -3 $cli/tools.txt
+          $bin help schedule-post > $cli/usage.txt && grep -q -- '--at  (string, required)' $cli/usage.txt
+          printf 'Line one\nLine two\n' > $cli/body.md
+          $bin create-idea --title cli-local --body @$cli/body.md > $cli/idea.json && grep -q 'Line two' $cli/idea.json
+          if $bin no-such-tool 2> $cli/err.txt; then exit 1; fi; grep -q 'Unknown tool' $cli/err.txt
+          printf '\x89PNG\r\n\x1a\n' > $cli/t.png && head -c 200 /dev/urandom >> $cli/t.png
+          (
+            export SIAR_URL=http://127.0.0.1:18787 SIAR_DATA_DIR=$(mktemp -d)
+            $bin status > $cli/status.json && grep -q '"accounts"' $cli/status.json
+            $bin stage-media --path $cli/t.png --alt smoke > $cli/media.json && grep -q '"filename": "t.png"' $cli/media.json
+            if SIAR_API_TOKEN=wrong-token-0123456789abcdefgh $bin status 2> $cli/err.txt; then exit 1; fi; grep -q '401' $cli/err.txt
+          )
+          echo "CLI ok"
           kill $pid
       - uses: actions/upload-artifact@v4
         with:
