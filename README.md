@@ -1,6 +1,10 @@
 # siar
 
-A social media scheduler with no web UI. It is an MCP server: Claude Code, Cursor or any MCP client writes, validates, schedules and publishes posts, and reads the numbers back.
+A social media scheduler with no web UI. It is an MCP server and a CLI: Claude Code, Cursor or any agent writes, validates, schedules and publishes posts, and reads the numbers back.
+
+![Claude Code schedules one post to X, Threads and LinkedIn with the siar CLI: list-accounts, validate-post, schedule-post](docs/img/demo.gif)
+
+<sub>Replay of a real Claude Code session against a test instance with demo accounts; the commands, outputs and post texts are the session's own, shortened.</sub>
 
 It does what [Postiz](https://github.com/gitroomhq/postiz-app) does for agents, without Postiz's five services (Next.js, NestJS, Temporal, Postgres, Redis):
 
