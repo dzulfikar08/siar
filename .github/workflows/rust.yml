@@ -41,6 +41,7 @@ jobs:
           cargo build --release --target x86_64-unknown-linux-musl && cp $T/release/siar out/siar
           cargo build --release --target x86_64-unknown-linux-musl --features mimalloc && cp $T/release/siar out/siar-mimalloc
           cargo build --profile release-fast --target x86_64-unknown-linux-musl --features mimalloc && cp $T/release-fast/siar out/siar-fast-mimalloc
+          cargo build --profile profiling --target x86_64-unknown-linux-musl && cp $T/profiling/siar profiling-siar
       - name: size
         run: |
           ls -l out/
@@ -72,4 +73,9 @@ jobs:
         with:
           name: siar-x86_64-linux-musl
           path: rust/out/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: siar-profiling
+          path: rust/profiling-siar
           if-no-files-found: error

@@ -34,3 +34,9 @@ strip = true
 [profile.release-fast]
 inherits = "release"
 opt-level = 3
+
+# Release with symbols, for profiling on a dev machine.
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = "line-tables-only"
