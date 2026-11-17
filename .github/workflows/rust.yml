@@ -1,0 +1,83 @@
+name: rust
+
+on:
+  push:
+    branches: [rust-port]
+    paths: ["rust/**", ".github/workflows/rust.yml"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: rust
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install musl tools
+        run: sudo apt-get update -q && sudo apt-get install -yq musl-tools
+      - name: fmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --all-targets
+        continue-on-error: true
+      - name: test
+        run: cargo test
+      - name: build (static musl, mimalloc)
+        run: |
+          T=target/x86_64-unknown-linux-musl
+          mkdir -p out
+          cargo build --release --target x86_64-unknown-linux-musl && cp $T/release/siar out/siar
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            # Symbols for profiling (gdb sampling on a dev machine).
+            cargo build --profile profiling --target x86_64-unknown-linux-musl && cp $T/profiling/siar profiling-siar
+          fi
+      - name: size
+        run: |
+          ls -l out/
+          file out/siar
+          {
+            echo "### Binary size"
+            echo "| variant | bytes | MiB |"
+            echo "|---|---|---|"
+            for f in out/*; do
+              b=$(stat -c %s $f)
+              echo "| $(basename $f) | $b | $(awk "BEGIN{printf \"%.2f\", $b/1048576}") |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: smoke test
+        run: |
+          export SIAR_DATA_DIR=$(mktemp -d) SIAR_VAULT_KEY=$(head -c32 /dev/urandom | base64) SIAR_API_TOKEN=smoke-token-0123456789abcdef SIAR_PORT=18787 SIAR_SCHEDULER=off
+          bin=out/siar
+          $bin keygen | cut -d= -f1
+          $bin serve & pid=$!
+          sleep 1
+          curl -sf localhost:18787/health
+          curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:18787/mcp
+          curl -sf -X POST localhost:18787/mcp -H "authorization: Bearer $SIAR_API_TOKEN" -H 'content-type: application/json' \
+            -d '[{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"status","arguments":{}}},{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_idea","arguments":{"title":"smoke"}}}]' | head -c 1500; echo
+          grep -E 'VmRSS|VmHWM' /proc/$pid/status
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_ideas","arguments":{}}}' | $bin mcp | head -c 400; echo
+          kill $pid
+      - uses: actions/upload-artifact@v4
+        with:
+          name: siar-x86_64-linux-musl
+          path: rust/out/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: siar-profiling
+          path: rust/profiling-siar
+          if-no-files-found: error

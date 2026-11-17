@@ -1,0 +1,46 @@
+[package]
+name = "siar"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Rust port of siar's core: MCP server for scheduling and publishing social posts"
+publish = false
+
+[dependencies]
+tiny_http = "0.12"
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+aes-gcm = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
+getrandom = "0.3"
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+unicode-segmentation = "1"
+k256 = { version = "0.13", default-features = false, features = ["schnorr", "std"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+mimalloc = { version = "0.1", default-features = false, optional = true }
+
+[features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Same as release but optimised for speed; CI builds both to compare.
+[profile.release-fast]
+inherits = "release"
+opt-level = 3
+
+# Release with symbols, for profiling on a dev machine.
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = "line-tables-only"

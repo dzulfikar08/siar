@@ -1,0 +1,92 @@
+[
+ {
+  "type": "table",
+  "name": "account_posts",
+  "sql": "CREATE TABLE account_posts (\n     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,\n     remote_id TEXT NOT NULL,\n     created_at INTEGER NOT NULL,\n     type TEXT,\n     url TEXT,\n     text TEXT,\n     metrics TEXT NOT NULL DEFAULT '{}',\n     fetched_at INTEGER NOT NULL,\n     PRIMARY KEY (account_id, remote_id)\n   )"
+ },
+ {
+  "type": "table",
+  "name": "accounts",
+  "sql": "CREATE TABLE accounts (\n     id TEXT PRIMARY KEY,\n     platform TEXT NOT NULL,\n     name TEXT NOT NULL,\n     handle TEXT,\n     external_id TEXT NOT NULL,\n     secret BLOB NOT NULL,\n     meta TEXT NOT NULL DEFAULT '{}',\n     expires_at INTEGER,\n     status TEXT NOT NULL DEFAULT 'active',\n     created_at INTEGER NOT NULL,\n     updated_at INTEGER NOT NULL,\n     UNIQUE (platform, external_id)\n   )"
+ },
+ {
+  "type": "table",
+  "name": "automation_marks",
+  "sql": "CREATE TABLE automation_marks (\n     automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,\n     key TEXT NOT NULL,\n     created_at INTEGER NOT NULL,\n     PRIMARY KEY (automation_id, key)\n   )"
+ },
+ {
+  "type": "table",
+  "name": "automations",
+  "sql": "CREATE TABLE automations (\n     id TEXT PRIMARY KEY,\n     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,\n     name TEXT NOT NULL,\n     kind TEXT NOT NULL,\n     enabled INTEGER NOT NULL DEFAULT 1,\n     config TEXT NOT NULL,\n     stats TEXT NOT NULL DEFAULT '{}',\n     created_at INTEGER NOT NULL,\n     updated_at INTEGER NOT NULL\n   )"
+ },
+ {
+  "type": "table",
+  "name": "comments",
+  "sql": "CREATE TABLE comments (\n     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,\n     remote_id TEXT NOT NULL,\n     remote_post_id TEXT NOT NULL,\n     parent_id TEXT,\n     author_id TEXT,\n     username TEXT,\n     text TEXT NOT NULL,\n     created_at INTEGER NOT NULL,\n     hidden INTEGER NOT NULL DEFAULT 0,\n     status TEXT NOT NULL DEFAULT 'unreplied',\n     reply_text TEXT,\n     replied_at INTEGER,\n     fetched_at INTEGER NOT NULL,\n     PRIMARY KEY (account_id, remote_id)\n   )"
+ },
+ {
+  "type": "index",
+  "name": "comments_status",
+  "sql": "CREATE INDEX comments_status ON comments (status, created_at)"
+ },
+ {
+  "type": "table",
+  "name": "ideas",
+  "sql": "CREATE TABLE ideas (\n     id TEXT PRIMARY KEY,\n     title TEXT NOT NULL,\n     body TEXT NOT NULL DEFAULT '',\n     tags TEXT NOT NULL DEFAULT '[]',\n     media TEXT NOT NULL DEFAULT '[]',\n     status TEXT NOT NULL DEFAULT 'open',\n     created_at INTEGER NOT NULL,\n     updated_at INTEGER NOT NULL\n   )"
+ },
+ {
+  "type": "table",
+  "name": "jobs",
+  "sql": "CREATE TABLE jobs (\n     id TEXT PRIMARY KEY,\n     run_at INTEGER NOT NULL,\n     type TEXT NOT NULL,\n     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,\n     automation_id TEXT,\n     payload TEXT NOT NULL,\n     status TEXT NOT NULL DEFAULT 'pending',\n     attempts INTEGER NOT NULL DEFAULT 0,\n     error TEXT,\n     done_at INTEGER\n   )"
+ },
+ {
+  "type": "index",
+  "name": "jobs_due",
+  "sql": "CREATE INDEX jobs_due ON jobs (status, run_at)"
+ },
+ {
+  "type": "table",
+  "name": "kv",
+  "sql": "CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+ },
+ {
+  "type": "table",
+  "name": "links",
+  "sql": "CREATE TABLE links (\n     code TEXT PRIMARY KEY,\n     url TEXT NOT NULL,\n     automation_id TEXT,\n     recipient TEXT,\n     clicks INTEGER NOT NULL DEFAULT 0,\n     first_click_at INTEGER,\n     created_at INTEGER NOT NULL\n   )"
+ },
+ {
+  "type": "table",
+  "name": "media",
+  "sql": "CREATE TABLE media (\n     id TEXT PRIMARY KEY,\n     filename TEXT NOT NULL,\n     mime TEXT NOT NULL,\n     size INTEGER NOT NULL,\n     storage TEXT NOT NULL,\n     key TEXT NOT NULL,\n     url TEXT NOT NULL,\n     alt TEXT,\n     created_at INTEGER NOT NULL\n   )"
+ },
+ {
+  "type": "table",
+  "name": "metrics",
+  "sql": "CREATE TABLE metrics (\n     target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,\n     fetched_at INTEGER NOT NULL,\n     data TEXT NOT NULL,\n     PRIMARY KEY (target_id, fetched_at)\n   )"
+ },
+ {
+  "type": "table",
+  "name": "oauth_states",
+  "sql": "CREATE TABLE oauth_states (\n     state TEXT PRIMARY KEY,\n     platform TEXT NOT NULL,\n     verifier TEXT NOT NULL,\n     data TEXT NOT NULL DEFAULT '{}',\n     created_at INTEGER NOT NULL\n   )"
+ },
+ {
+  "type": "table",
+  "name": "posts",
+  "sql": "CREATE TABLE posts (\n     id TEXT PRIMARY KEY,\n     status TEXT NOT NULL,\n     content TEXT NOT NULL,\n     media TEXT NOT NULL DEFAULT '[]',\n     options TEXT NOT NULL DEFAULT '{}',\n     scheduled_at INTEGER,\n     created_at INTEGER NOT NULL,\n     updated_at INTEGER NOT NULL\n   , idea_id TEXT REFERENCES ideas(id) ON DELETE SET NULL)"
+ },
+ {
+  "type": "index",
+  "name": "posts_sched",
+  "sql": "CREATE INDEX posts_sched ON posts (status, scheduled_at)"
+ },
+ {
+  "type": "table",
+  "name": "targets",
+  "sql": "CREATE TABLE targets (\n     id TEXT PRIMARY KEY,\n     post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,\n     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,\n     content TEXT,\n     media TEXT,\n     options TEXT NOT NULL DEFAULT '{}',\n     status TEXT NOT NULL DEFAULT 'pending',\n     attempts INTEGER NOT NULL DEFAULT 0,\n     next_attempt_at INTEGER,\n     remote_id TEXT,\n     remote_url TEXT,\n     error TEXT,\n     published_at INTEGER\n   )"
+ },
+ {
+  "type": "index",
+  "name": "targets_due",
+  "sql": "CREATE INDEX targets_due ON targets (status, next_attempt_at)"
+ }
+]

@@ -1,0 +1,1266 @@
+[
+ {
+  "id": "x",
+  "name": "X",
+  "auth": {
+   "type": "oauth2",
+   "env": "X"
+  },
+  "limits": {
+   "maxChars": 280,
+   "maxMedia": 4,
+   "media": [
+    "image",
+    "video"
+   ],
+   "maxImageBytes": 5242880,
+   "maxVideoBytes": 536870912,
+   "thread": true,
+   "count": "twitter"
+  },
+  "options": {
+   "thread": "string[]: follow-up posts as a reply chain",
+   "reply_to": "post id to reply to",
+   "quote": "post id to quote",
+   "long": "boolean: allow up to 25,000 characters (X Premium accounts)",
+   "reply_settings": "following | mentionedUsers | subscribers | verified"
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "linkedin",
+  "name": "LinkedIn (personal profile)",
+  "auth": {
+   "type": "oauth2",
+   "env": "LINKEDIN"
+  },
+  "limits": {
+   "maxChars": 3000,
+   "maxMedia": 20,
+   "media": [
+    "image",
+    "video",
+    "pdf"
+   ],
+   "maxImageBytes": 37748736,
+   "maxVideoBytes": 524288000,
+   "count": "utf16"
+  },
+  "options": {
+   "visibility": "PUBLIC | CONNECTIONS (personal only)",
+   "document_title": "title shown on a PDF carousel (one PDF in media = native document carousel)",
+   "video_title": "string",
+   "link": "URL for an article card (text-only posts)",
+   "link_title": "string",
+   "first_comment": "string: comment posted right after (good for links)"
+  },
+  "analytics": {
+   "post": true,
+   "account": false
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": false,
+   "remove": true
+  }
+ },
+ {
+  "id": "linkedin-page",
+  "name": "LinkedIn Company Page",
+  "auth": {
+   "type": "oauth2",
+   "env": "LINKEDIN_PAGE"
+  },
+  "limits": {
+   "maxChars": 3000,
+   "maxMedia": 20,
+   "media": [
+    "image",
+    "video",
+    "pdf"
+   ],
+   "maxImageBytes": 37748736,
+   "maxVideoBytes": 524288000,
+   "count": "utf16"
+  },
+  "options": {
+   "visibility": "PUBLIC | CONNECTIONS (personal only)",
+   "document_title": "title shown on a PDF carousel (one PDF in media = native document carousel)",
+   "video_title": "string",
+   "link": "URL for an article card (text-only posts)",
+   "link_title": "string",
+   "first_comment": "string: comment posted right after (good for links)"
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "instagram",
+  "name": "Instagram",
+  "auth": {
+   "type": "oauth2",
+   "env": "INSTAGRAM"
+  },
+  "limits": {
+   "maxChars": 2200,
+   "maxMedia": 10,
+   "media": [
+    "image",
+    "video"
+   ],
+   "mixed": true,
+   "requiresMedia": true,
+   "maxImageBytes": 8388608,
+   "maxVideoBytes": 314572800
+  },
+  "options": {
+   "format": "feed | story (default feed; one video in the feed is a reel)",
+   "first_comment": "string posted as the first comment (not stories)",
+   "collaborators": "string[]: up to 3 usernames for a Collab post",
+   "share_to_feed": "boolean: reel also shows in the feed (default true)",
+   "cover_media_id": "media id of an image to use as the reel cover",
+   "thumb_offset_ms": "reel cover frame, ms into the video",
+   "trial": "manual | auto: trial reel shown to non-followers first (account must be eligible)",
+   "is_ai_generated": "boolean: adds Instagram's AI info label (only at creation)",
+   "location_id": "Facebook Page id with a location",
+   "user_tags": "[{username, x, y}] for images",
+   "note": "Instagram downloads media itself: it needs R2 or a public SIAR_PUBLIC_URL."
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": true,
+   "stories": true,
+   "publishingLimit": true,
+   "info": false,
+   "comments": true,
+   "dm": true,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "instagram-login",
+  "name": "Instagram (Instagram Login, older apps)",
+  "auth": {
+   "type": "oauth2",
+   "env": "INSTAGRAM_LOGIN"
+  },
+  "limits": {
+   "maxChars": 2200,
+   "maxMedia": 10,
+   "media": [
+    "image",
+    "video"
+   ],
+   "mixed": true,
+   "requiresMedia": true,
+   "maxImageBytes": 8388608,
+   "maxVideoBytes": 314572800
+  },
+  "options": {
+   "format": "feed | story (default feed; one video in the feed is a reel)",
+   "first_comment": "string posted as the first comment (not stories)",
+   "collaborators": "string[]: up to 3 usernames for a Collab post",
+   "share_to_feed": "boolean: reel also shows in the feed (default true)",
+   "cover_media_id": "media id of an image to use as the reel cover",
+   "thumb_offset_ms": "reel cover frame, ms into the video",
+   "trial": "manual | auto: trial reel shown to non-followers first (account must be eligible)",
+   "is_ai_generated": "boolean: adds Instagram's AI info label (only at creation)",
+   "location_id": "Facebook Page id with a location",
+   "user_tags": "[{username, x, y}] for images",
+   "note": "Instagram downloads media itself: it needs R2 or a public SIAR_PUBLIC_URL."
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": true,
+   "stories": true,
+   "publishingLimit": true,
+   "info": false,
+   "comments": true,
+   "dm": true,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "instagram-facebook",
+  "name": "Instagram (via Facebook Page)",
+  "auth": {
+   "type": "oauth2",
+   "env": "FACEBOOK"
+  },
+  "limits": {
+   "maxChars": 2200,
+   "maxMedia": 10,
+   "media": [
+    "image",
+    "video"
+   ],
+   "mixed": true,
+   "requiresMedia": true,
+   "maxImageBytes": 8388608,
+   "maxVideoBytes": 314572800
+  },
+  "options": {
+   "format": "feed | story (default feed; one video in the feed is a reel)",
+   "first_comment": "string posted as the first comment (not stories)",
+   "collaborators": "string[]: up to 3 usernames for a Collab post",
+   "share_to_feed": "boolean: reel also shows in the feed (default true)",
+   "cover_media_id": "media id of an image to use as the reel cover",
+   "thumb_offset_ms": "reel cover frame, ms into the video",
+   "trial": "manual | auto: trial reel shown to non-followers first (account must be eligible)",
+   "is_ai_generated": "boolean: adds Instagram's AI info label (only at creation)",
+   "location_id": "Facebook Page id with a location",
+   "user_tags": "[{username, x, y}] for images",
+   "note": "Instagram downloads media itself: it needs R2 or a public SIAR_PUBLIC_URL."
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": false,
+  "caps": {
+   "refresh": false,
+   "posts": true,
+   "stories": true,
+   "publishingLimit": true,
+   "info": false,
+   "comments": true,
+   "dm": true,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": false
+  }
+ },
+ {
+  "id": "facebook",
+  "name": "Facebook Page",
+  "auth": {
+   "type": "oauth2",
+   "env": "FACEBOOK"
+  },
+  "limits": {
+   "maxChars": 63206,
+   "maxMedia": 10,
+   "media": [
+    "image",
+    "video"
+   ],
+   "maxImageBytes": 10485760,
+   "maxVideoBytes": 1073741824
+  },
+  "options": {
+   "link": "URL for a link card (text posts)",
+   "video_as": "reel | video (one video; default reel)",
+   "video_title": "string",
+   "first_comment": "string posted as the first comment"
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": true,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": true,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "threads",
+  "name": "Threads",
+  "auth": {
+   "type": "oauth2",
+   "env": "THREADS"
+  },
+  "limits": {
+   "maxChars": 500,
+   "maxMedia": 20,
+   "media": [
+    "image",
+    "video"
+   ],
+   "mixed": true,
+   "thread": true
+  },
+  "options": {
+   "thread": "array of follow-up parts posted as replies: string, or {text?, media_ids? (one), media_url?}",
+   "poll": "{options: [2-4 strings ≤25 chars]} (text-only posts)",
+   "topic_tag": "one topic tag (no #, no . or &)",
+   "link_attachment": "URL for a link preview card (text-only posts)",
+   "text_attachment": "{text ≤10000, link_url?}: long text attached to a text-only post",
+   "reply_control": "everyone | accounts_you_follow | mentioned_only | parent_post_author_only | followers_only",
+   "reply_to_id": "Threads post id to reply to (any account's post)",
+   "quote_post_id": "Threads post id to quote",
+   "is_made_with_ai": "boolean: Threads AI info label (set on the first post)",
+   "is_spoiler_media": "boolean",
+   "note": "Threads downloads media itself: it needs R2 or a public SIAR_PUBLIC_URL."
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": true,
+   "stories": false,
+   "publishingLimit": true,
+   "info": false,
+   "comments": true,
+   "dm": false,
+   "search": true,
+   "context": true,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "tiktok",
+  "name": "TikTok",
+  "auth": {
+   "type": "oauth2",
+   "env": "TIKTOK"
+  },
+  "limits": {
+   "maxChars": 2200,
+   "maxMedia": 35,
+   "media": [
+    "image",
+    "video"
+   ],
+   "requiresMedia": true,
+   "maxImageBytes": 20971520,
+   "maxVideoBytes": 4294967296,
+   "count": "utf16"
+  },
+  "options": {
+   "privacy": "PUBLIC_TO_EVERYONE | MUTUAL_FOLLOW_FRIENDS | FOLLOWER_OF_CREATOR | SELF_ONLY (default: public if the creator allows it). Unaudited TikTok apps can only post SELF_ONLY.",
+   "title": "photo post title (max 90)",
+   "disable_comment": "boolean",
+   "disable_duet": "boolean",
+   "disable_stitch": "boolean",
+   "is_aigc": "boolean: label as AI-generated",
+   "brand_content": "boolean: paid partnership disclosure",
+   "note": "One video, or up to 35 images as a Photo Mode post. Photos are pulled from a URL on a domain verified in the TikTok developer portal (use R2 with a custom domain)."
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": false,
+  "caps": {
+   "refresh": true,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": true,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": false
+  }
+ },
+ {
+  "id": "youtube",
+  "name": "YouTube",
+  "auth": {
+   "type": "oauth2",
+   "env": "GOOGLE"
+  },
+  "limits": {
+   "maxChars": 5000,
+   "maxMedia": 1,
+   "media": [
+    "video"
+   ],
+   "requiresMedia": true,
+   "maxVideoBytes": 274877906944,
+   "title": "required"
+  },
+  "options": {
+   "title": "string (required, max 100)",
+   "made_for_kids": "boolean (required): ask the user, never assume",
+   "privacy": "public | unlisted | private (default public)",
+   "tags": "string[]",
+   "category_id": "YouTube category id (default 22, People & Blogs)",
+   "notify_subscribers": "boolean (default true)",
+   "contains_synthetic_media": "boolean: realistic AI-generated or altered content",
+   "cover_media_id": "media id of a JPG/PNG thumbnail (not Shorts; channel must be verified for custom thumbnails)",
+   "note": "Text is the description. A vertical video up to 3 minutes becomes a Short."
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": true,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": true,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "pinterest",
+  "name": "Pinterest",
+  "auth": {
+   "type": "oauth2",
+   "env": "PINTEREST"
+  },
+  "limits": {
+   "maxChars": 800,
+   "maxMedia": 5,
+   "media": [
+    "image",
+    "video"
+   ],
+   "requiresMedia": true,
+   "maxImageBytes": 20971520,
+   "maxVideoBytes": 2147483648
+  },
+  "options": {
+   "board_id": "string (required unless the account has one board): board to pin to; list_boards in get_account shows them",
+   "title": "string (max 100)",
+   "link": "destination URL",
+   "cover_url": "cover image URL for a video Pin"
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": true,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "reddit",
+  "name": "Reddit",
+  "auth": {
+   "type": "oauth2",
+   "env": "REDDIT"
+  },
+  "limits": {
+   "maxChars": 40000,
+   "maxMedia": 1,
+   "media": [
+    "image"
+   ],
+   "maxImageBytes": 20971520,
+   "title": "required"
+  },
+  "options": {
+   "subreddit": "string (required), without r/",
+   "title": "string (required, max 300)",
+   "url": "submit a link post instead of a text post",
+   "flair_id": "string",
+   "nsfw": "boolean",
+   "spoiler": "boolean"
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "bluesky",
+  "name": "Bluesky",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "identifier",
+     "label": "Handle or email"
+    },
+    {
+     "key": "password",
+     "label": "App password (Settings → App passwords)",
+     "secret": true
+    },
+    {
+     "key": "service",
+     "label": "PDS URL",
+     "optional": true,
+     "default": "https://bsky.social"
+    }
+   ]
+  },
+  "limits": {
+   "maxChars": 300,
+   "maxMedia": 4,
+   "media": [
+    "image",
+    "video"
+   ],
+   "maxImageBytes": 999424,
+   "maxVideoBytes": 104857600,
+   "thread": true,
+   "count": "graphemes"
+  },
+  "options": {
+   "thread": "string[]: follow-up posts, posted as a reply chain",
+   "langs": "string[]: BCP-47 language tags"
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "mastodon",
+  "name": "Mastodon",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "instance",
+     "label": "Instance URL, e.g. https://mastodon.social"
+    },
+    {
+     "key": "access_token",
+     "label": "Access token",
+     "secret": true
+    }
+   ],
+   "help": "Create an application in Preferences → Development with scopes write:statuses write:media read:accounts read:statuses, then copy its access token."
+  },
+  "limits": {
+   "maxChars": 500,
+   "maxMedia": 4,
+   "media": [
+    "image",
+    "video"
+   ],
+   "maxImageBytes": 16777216,
+   "maxVideoBytes": 103809024,
+   "thread": true
+  },
+  "options": {
+   "thread": "string[]: follow-up posts as a reply chain",
+   "visibility": "public | unlisted | private | direct (default public)",
+   "spoiler_text": "content warning",
+   "language": "ISO 639 code"
+  },
+  "analytics": {
+   "post": true,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "nostr",
+  "name": "Nostr",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "private_key",
+     "label": "Private key (nsec1… or hex)",
+     "secret": true
+    },
+    {
+     "key": "relays",
+     "label": "Relays, comma separated",
+     "optional": true,
+     "default": "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net,wss://relay.nostr.band"
+    }
+   ]
+  },
+  "limits": {
+   "maxChars": 10000,
+   "maxMedia": 4,
+   "media": [
+    "image",
+    "video"
+   ],
+   "mixed": true,
+   "thread": true
+  },
+  "options": {
+   "thread": "string[]: follow-up notes as replies",
+   "hashtags": "string[]: added as t tags",
+   "note": "Media is appended as public URLs (needs R2 or a public SIAR_PUBLIC_URL)."
+  },
+  "analytics": {
+   "post": false,
+   "account": false
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": false,
+   "accountMetrics": false,
+   "remove": true
+  }
+ },
+ {
+  "id": "farcaster",
+  "name": "Farcaster",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "api_key",
+     "label": "Neynar API key",
+     "secret": true
+    },
+    {
+     "key": "signer_uuid",
+     "label": "Signer UUID",
+     "secret": true
+    }
+   ],
+   "help": "Create a Neynar app and an approved signer for your account (dev.neynar.com)."
+  },
+  "limits": {
+   "maxChars": 1024,
+   "maxMedia": 2,
+   "media": [
+    "image",
+    "video"
+   ],
+   "mixed": true,
+   "thread": true,
+   "count": "utf16"
+  },
+  "options": {
+   "channel_id": "post into a channel, e.g. dev",
+   "embeds": "string[]: extra URLs to embed (max 2 total)",
+   "thread": "string[]: follow-up casts as replies"
+  },
+  "analytics": {
+   "post": true,
+   "account": false
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": false,
+   "remove": true
+  }
+ },
+ {
+  "id": "lemmy",
+  "name": "Lemmy",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "instance",
+     "label": "Instance URL"
+    },
+    {
+     "key": "username",
+     "label": "Username or email"
+    },
+    {
+     "key": "password",
+     "label": "Password",
+     "secret": true
+    }
+   ]
+  },
+  "limits": {
+   "maxChars": 10000,
+   "maxMedia": 1,
+   "media": [
+    "image"
+   ],
+   "title": "required"
+  },
+  "options": {
+   "title": "string (required)",
+   "community": "string (required): community name, e.g. technology or technology@lemmy.world",
+   "url": "link to share",
+   "nsfw": "boolean"
+  },
+  "analytics": {
+   "post": true,
+   "account": false
+  },
+  "delete": false,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": false,
+   "remove": false
+  }
+ },
+ {
+  "id": "devto",
+  "name": "DEV",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "api_key",
+     "label": "API key",
+     "secret": true
+    },
+    {
+     "key": "base_url",
+     "label": "Forem URL",
+     "optional": true,
+     "default": "https://dev.to"
+    }
+   ],
+   "help": "Settings → Extensions → DEV Community API Keys."
+  },
+  "limits": {
+   "maxChars": 1000000,
+   "maxMedia": 1,
+   "media": [
+    "image"
+   ],
+   "title": "required"
+  },
+  "options": {
+   "title": "string (required): article title",
+   "tags": "string[]",
+   "canonical_url": "original URL for SEO",
+   "draft": "boolean: save as draft instead of publishing",
+   "series": "series name",
+   "note": "Content is Markdown. The image becomes the cover."
+  },
+  "analytics": {
+   "post": true,
+   "account": false
+  },
+  "delete": false,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": false,
+   "remove": false
+  }
+ },
+ {
+  "id": "hashnode",
+  "name": "Hashnode",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "token",
+     "label": "Personal access token",
+     "secret": true
+    },
+    {
+     "key": "publication_id",
+     "label": "Publication id"
+    }
+   ],
+   "help": "hashnode.com/settings/developer → Personal Access Token. Publication id is on the blog dashboard URL."
+  },
+  "limits": {
+   "maxChars": 1000000,
+   "maxMedia": 1,
+   "media": [
+    "image"
+   ],
+   "title": "required"
+  },
+  "options": {
+   "title": "string (required): article title",
+   "tags": "string[] of tag slugs",
+   "canonical_url": "original URL for SEO",
+   "draft": "not supported; always publishes",
+   "subtitle": "string"
+  },
+  "analytics": {
+   "post": true,
+   "account": false
+  },
+  "delete": false,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": true,
+   "accountMetrics": false,
+   "remove": false
+  }
+ },
+ {
+  "id": "medium",
+  "name": "Medium",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "token",
+     "label": "Integration token",
+     "secret": true
+    }
+   ]
+  },
+  "limits": {
+   "maxChars": 1000000,
+   "maxMedia": 0,
+   "media": [],
+   "title": "required"
+  },
+  "options": {
+   "title": "string (required): article title",
+   "tags": "string[] (max 5)",
+   "canonical_url": "original URL for SEO",
+   "draft": "boolean: save as draft instead of publishing",
+   "publication_id": "post into a publication you write for",
+   "note": "Content is Markdown."
+  },
+  "analytics": {
+   "post": false,
+   "account": false
+  },
+  "delete": false,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": false,
+   "accountMetrics": false,
+   "remove": false
+  }
+ },
+ {
+  "id": "wordpress",
+  "name": "WordPress",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "site",
+     "label": "Site URL, e.g. https://example.com"
+    },
+    {
+     "key": "username",
+     "label": "Username"
+    },
+    {
+     "key": "app_password",
+     "label": "Application password",
+     "secret": true
+    }
+   ],
+   "help": "Users → Profile → Application Passwords."
+  },
+  "limits": {
+   "maxChars": 1000000,
+   "maxMedia": 1,
+   "media": [
+    "image"
+   ],
+   "title": "required"
+  },
+  "options": {
+   "title": "string (required): article title",
+   "tags": "string[]",
+   "canonical_url": "original URL for SEO",
+   "draft": "boolean: save as draft instead of publishing",
+   "status": "publish | draft | pending | private",
+   "categories": "number[] category ids",
+   "excerpt": "string",
+   "note": "Content is HTML. The image becomes the featured image."
+  },
+  "analytics": {
+   "post": false,
+   "account": false
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": false,
+   "accountMetrics": false,
+   "remove": true
+  }
+ },
+ {
+  "id": "google-business",
+  "name": "Google Business Profile",
+  "auth": {
+   "type": "oauth2",
+   "env": "GOOGLE"
+  },
+  "limits": {
+   "maxChars": 1500,
+   "maxMedia": 1,
+   "media": [
+    "image"
+   ]
+  },
+  "options": {
+   "cta": "BOOK | ORDER | SHOP | LEARN_MORE | SIGN_UP | CALL",
+   "cta_url": "URL for the call-to-action button",
+   "language": "language code (default en)",
+   "note": "Google downloads the photo itself: it needs R2 or a public SIAR_PUBLIC_URL."
+  },
+  "analytics": {
+   "post": false,
+   "account": false
+  },
+  "delete": true,
+  "caps": {
+   "refresh": true,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": false,
+   "accountMetrics": false,
+   "remove": true
+  }
+ },
+ {
+  "id": "telegram",
+  "name": "Telegram",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "bot_token",
+     "label": "Bot token",
+     "secret": true
+    },
+    {
+     "key": "chat_id",
+     "label": "Chat id (@channel or numeric id)"
+    }
+   ],
+   "help": "Create a bot with @BotFather, add it to the channel/group as an admin, then give the chat id (@channelname or -100…)."
+  },
+  "limits": {
+   "maxChars": 4096,
+   "maxMedia": 10,
+   "media": [
+    "image",
+    "video",
+    "pdf"
+   ],
+   "mixed": true,
+   "maxImageBytes": 10485760,
+   "maxVideoBytes": 52428800
+  },
+  "options": {
+   "parse_mode": "HTML | MarkdownV2 (default: plain text)",
+   "silent": "boolean: send without notification",
+   "note": "With media the caption limit is 1024 characters; longer text is sent as a separate message after the media."
+  },
+  "analytics": {
+   "post": false,
+   "account": true
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": false,
+   "accountMetrics": true,
+   "remove": true
+  }
+ },
+ {
+  "id": "discord",
+  "name": "Discord",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "webhook_url",
+     "label": "Webhook URL",
+     "secret": true
+    }
+   ],
+   "help": "Channel settings → Integrations → Webhooks → New webhook → Copy URL."
+  },
+  "limits": {
+   "maxChars": 2000,
+   "maxMedia": 10,
+   "media": [
+    "image",
+    "video",
+    "pdf"
+   ],
+   "mixed": true,
+   "maxImageBytes": 26214400,
+   "maxVideoBytes": 26214400
+  },
+  "options": {
+   "username": "override the webhook's display name",
+   "thread_name": "create a forum post with this title (forum channels)"
+  },
+  "analytics": {
+   "post": false,
+   "account": false
+  },
+  "delete": true,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": false,
+   "accountMetrics": false,
+   "remove": true
+  }
+ },
+ {
+  "id": "slack",
+  "name": "Slack",
+  "auth": {
+   "type": "credentials",
+   "fields": [
+    {
+     "key": "bot_token",
+     "label": "Bot token (xoxb-…)",
+     "secret": true
+    },
+    {
+     "key": "channel",
+     "label": "Channel id (C…)"
+    }
+   ],
+   "help": "Create a Slack app with bot scopes chat:write, files:write, channels:read; install it, invite the bot to the channel."
+  },
+  "limits": {
+   "maxChars": 40000,
+   "maxMedia": 10,
+   "media": [
+    "image",
+    "video",
+    "pdf"
+   ],
+   "mixed": true,
+   "maxImageBytes": 1073741824,
+   "maxVideoBytes": 1073741824
+  },
+  "options": {},
+  "analytics": {
+   "post": false,
+   "account": false
+  },
+  "delete": false,
+  "caps": {
+   "refresh": false,
+   "posts": false,
+   "stories": false,
+   "publishingLimit": false,
+   "info": false,
+   "comments": false,
+   "dm": false,
+   "search": false,
+   "context": false,
+   "metrics": false,
+   "accountMetrics": false,
+   "remove": false
+  }
+ }
+]

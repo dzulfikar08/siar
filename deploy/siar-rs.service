@@ -1,0 +1,28 @@
+# siar, Rust build: side-by-side trial next to the Bun service (see rust/TRIAL.md).
+# Its own binary, database, media and env file; never point it at /opt/siar/data.
+[Unit]
+Description=siar (Rust build, trial) social media scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=siar
+Group=siar
+WorkingDirectory=/opt/siar-rs
+EnvironmentFile=/opt/siar-rs/.env
+# Set after the env file so it cannot be overridden by it (EnvironmentFile wins over Environment=).
+Environment=SIAR_DATA_DIR=/opt/siar-rs/data
+ExecStart=/opt/siar-rs/bin/siar serve
+Restart=always
+RestartSec=3
+# Let a publish in flight finish before a stop.
+TimeoutStopSec=60
+MemoryMax=200M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/siar-rs/data
+
+[Install]
+WantedBy=multi-user.target
