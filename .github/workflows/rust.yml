@@ -34,14 +34,16 @@ jobs:
         continue-on-error: true
       - name: test
         run: cargo test
-      - name: build (musl; opt-level s, s + mimalloc, 3 + mimalloc)
+      - name: build (musl; default allocator and mimalloc)
         run: |
           T=target/x86_64-unknown-linux-musl
           mkdir -p out
           cargo build --release --target x86_64-unknown-linux-musl && cp $T/release/siar out/siar
           cargo build --release --target x86_64-unknown-linux-musl --features mimalloc && cp $T/release/siar out/siar-mimalloc
-          cargo build --profile release-fast --target x86_64-unknown-linux-musl --features mimalloc && cp $T/release-fast/siar out/siar-fast-mimalloc
-          cargo build --profile profiling --target x86_64-unknown-linux-musl && cp $T/profiling/siar profiling-siar
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            # Symbols for profiling (gdb sampling on a dev machine).
+            cargo build --profile profiling --target x86_64-unknown-linux-musl && cp $T/profiling/siar profiling-siar
+          fi
       - name: size
         run: |
           ls -l out/
@@ -75,6 +77,7 @@ jobs:
           path: rust/out/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: siar-profiling
           path: rust/profiling-siar

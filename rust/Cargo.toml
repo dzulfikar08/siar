@@ -30,10 +30,6 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# SQLite is C code compiled by the cc crate; build it for speed even in the size-optimised profile.
-[profile.release.package.libsqlite3-sys]
-opt-level = 3
-
 # Same as release but optimised for speed; CI builds both to compare.
 [profile.release-fast]
 inherits = "release"
