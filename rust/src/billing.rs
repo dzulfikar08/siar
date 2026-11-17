@@ -58,6 +58,38 @@ pub fn polar_checkout(tenant_id: &str, plan: &Plan, email: Option<&str>) -> Resu
     }
 }
 
+/// Move a live Polar subscription to another plan's product (Basic to Pro, monthly to yearly).
+/// Polar invoices the prorated difference at once; the plan changes when the
+/// `subscription.updated` webhook arrives.
+pub fn polar_change(subscription_id: &str, plan: &Plan) -> Result<()> {
+    let Some(product) = plan.polar_product_id.as_deref().filter(|p| !p.is_empty()) else {
+        bail!("The {} plan has no Polar product yet", plan.name);
+    };
+    let token = env("POLAR_ACCESS_TOKEN").unwrap_or_default();
+    net::req("PATCH", format!("{}/v1/subscriptions/{subscription_id}", polar_api()))
+        .bearer(&token)
+        .json(json!({ "product_id": product, "proration_behavior": "invoice" }))
+        .get_json()?;
+    Ok(())
+}
+
+/// The tenant's Polar subscription that a plan change should modify instead of a new checkout:
+/// active (not cancelled), with a Polar id, on another plan.
+pub fn polar_subscription_to_change(tenant_id: &str, plan_id: &str) -> Result<Option<String>> {
+    let Some(sub) = control::subscription(tenant_id)? else { return Ok(None) };
+    if sub.provider != "polar" || sub.plan_id == plan_id || sub.cancel_at_period_end || !matches!(sub.status.as_str(), "active" | "trialing") {
+        return Ok(None);
+    }
+    control::with(|c| {
+        Ok(c.query_row("SELECT external_id FROM subscriptions WHERE tenant_id = ?", [tenant_id], |r| {
+            r.get::<_, Option<String>>(0)
+        })
+        .optional()?
+        .flatten()
+        .filter(|e| !e.is_empty()))
+    })
+}
+
 /// The HMAC keys a Polar secret may stand for: Standard Webhooks secrets (`whsec_` + base64 key,
 /// created on or after 8 Sept 2026) and the older Polar HMAC scheme (key = UTF-8 bytes of the
 /// whole secret). Polar's SDKs try both, so this does too.

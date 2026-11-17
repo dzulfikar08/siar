@@ -1,0 +1,17 @@
+<figure class="session play" aria-label="Example session: an agent schedules a week of posts with siar">
+<figcaption class="session-head"><span>Example session in Claude Code</span><span>sample account</span></figcaption>
+<ol>
+<li class="say"><span class="who">You</span>Schedule this week's three posts from posts.md to Threads and Instagram at our best times.</li>
+<li class="call"><span class="fn">list_accounts</span><span class="args">{}</span><span class="res">2 accounts: Threads and Instagram, @kopilab</span></li>
+<li class="call"><span class="fn">best_times</span><span class="args">{"account_id": "acc_81d2e0b4"}</span><span class="res">Tue, Thu, Sat 19:00 to 21:00: 1.6x usual reach (52 posts)</span></li>
+<li class="call"><span class="fn">stage_media</span><span class="args">{"url": "https://kopilab.id/img/roast-day.jpg"}</span><span class="res">3 images staged</span></li>
+<li class="call"><span class="fn">validate_post</span><span class="args">{"targets": ["acc_3f9c71a2", "acc_81d2e0b4"], ...}</span><span class="res">3 of 3 posts valid on both accounts</span></li>
+<li class="call"><span class="fn">schedule_post</span><span class="args">{"at": "2026-11-19T19:00:00+07:00", ...}</span><span class="res">3 posts scheduled</span></li>
+<li class="say reply"><span class="who">Claude</span><p>Done. Your evening slots do best, so they go out at 19:00:</p>
+<table class="rundown"><tbody>
+<tr><td>Thu 19:00</td><td class="where">Threads, IG</td><td>Roast day: the new Gayo batch</td></tr>
+<tr><td>Sat 19:00</td><td class="where">Threads, IG</td><td>Behind the grinder</td></tr>
+<tr><td>Tue 19:00</td><td class="where">Threads, IG</td><td>Holiday opening hours</td></tr>
+</tbody></table></li>
+</ol>
+</figure>

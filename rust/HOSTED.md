@@ -101,6 +101,7 @@ siar plan default free
 - Limits enforced: connected accounts, posts scheduled or published per calendar month (UTC; each
   post counts once), media storage, largest upload, API requests per minute per key. Over a limit,
   tools return an error naming the limit and the upgrade page.
+- `tier` groups a monthly and a yearly plan into one offer; `features` lists extra tools (see below).
 - `public: 0` hides a plan from the pricing page (for custom deals); assign it by subscription.
 - A tenant without a live subscription gets the default plan.
 
@@ -128,9 +129,38 @@ The Polar product must cost the grossed-up price: `siar-admin plan list` prints 
 total. A subscription webhook whose `amount` is below the grossed-up price does not activate the
 plan (it is logged).
 
-Seeded plans (editable): `monthly` $3.00 net/month (Polar $3.75) with IDR prepaid Rp15.000 for
-1 month, Rp45.000 for 3 and Rp180.000 for 12 (net); `yearly` $12.00 net/year (Polar $13.37).
-Limits on both: 10 accounts, 300 posts/month, 2 GB storage, 200 MB uploads, 120 requests/min.
+Seeded plans (editable; a yearly price is 4 monthly payments, in USD and in IDR):
+
+| plan id | tier | USD net (Polar price) | IDR net, prepaid | limits | features |
+|---|---|---|---|---|---|
+| `free` | | $0 | | 2 accounts, 30 posts/month, 200 MB, 25 MB uploads, 60 req/min | |
+| `basic` | basic | $3.00/month ($3.75) | Rp15.000 / 1 mo, Rp45.000 / 3 mo, Rp60.000 / 12 mo | 10 accounts, 300 posts/month, 2 GB, 200 MB uploads, 120 req/min | |
+| `basic_yearly` | basic | $12.00/year ($13.37) | | same as `basic` | |
+| `pro` | pro | $9.00/month ($10.17) | Rp45.000 / 1 mo, Rp135.000 / 3 mo, Rp180.000 / 12 mo | 30 accounts, 900 posts/month, 6 GB, 500 MB uploads, 240 req/min | `automations`, `analytics` |
+| `pro_yearly` | pro | $36.00/year ($39.04) | | same as `pro` | same as `pro` |
+
+The seed (`seed_v3` in control.rs, run once per database) turned the earlier single paid plan
+(`monthly`, `yearly`) into `basic` and `basic_yearly`, keeping their Polar products and moving
+subscriptions and invoices to the new ids.
+
+**Tiers.** Plans with the same `tier` are one offer on the pricing page and in the dashboard
+(the monthly plan's name, limits and IDR periods; the yearly plan as a second price with its saving).
+A plan without a tier is shown on its own. The last offer is the highlighted card.
+
+**Features.** `features` (JSON array in `plan put`, stored comma-separated) unlocks tools:
+`automations` for `create_automation` and `update_automation` and for running automations
+(comment and DM replies, queued jobs, polling); `analytics` for `account_analytics`,
+`post_analytics`, `post_performance` and `post_metric_history`. `best_times`, `list_account_posts`
+and every other tool work on every plan. Without the feature, the tool returns
+"Plan limit: … needs the Pro plan. Upgrade your plan at …/dashboard#billing." A tenant whose plan
+loses `automations` keeps its automations (listable, deletable) but they stop running: pending
+jobs are cancelled, comments and DMs are not polled for them, webhooks trigger nothing. They run
+again after an upgrade.
+
+**Changing plans.** A tenant with a live card subscription that picks another plan in the
+dashboard gets its Polar subscription changed in place (`PATCH /v1/subscriptions/{id}` with the
+new `product_id`, `proration_behavior: invoice`); the `subscription.updated` webhook switches the
+plan. A rupiah payment for another plan starts a new prepaid period on that plan from now.
 
 **IDR (DOKU).** The customer chooses the payment method on our page; the DOKU order gets a second
 line item "Biaya admin <method>" and DOKU Checkout is limited to that method
@@ -238,6 +268,26 @@ app's secret; optional verify token saved with the app).
 
 A tenant's own app always wins over the shared one. Credential platforms (Bluesky, Mastodon,
 Telegram, Discord, Slack, Nostr, Farcaster, Lemmy, DEV, Hashnode, Medium, WordPress) need no app.
+
+## Static files (hero demo video)
+
+`GET /static/<name>` serves files from `<SIAR_DATA_DIR>/public/` (on the server
+`/opt/siar-hosted/data/public/`, owned by `siar-hosted`): one path segment of letters, digits,
+`.`, `-`, `_`, no leading dot, extensions `.mp4`, `.webm`, `.png`, `.jpg`/`.jpeg`, `.webp`.
+Responses carry the content type, `Cache-Control: public, max-age=3600`, `Accept-Ranges: bytes`,
+and answer single byte ranges with 206 (Safari needs this to play and seek mp4).
+
+When `public/demo.mp4` exists, the landing page hero shows
+`<video autoplay muted loop playsinline>` with `/static/demo.webm` (if present) and
+`/static/demo.mp4`, and `poster="/static/demo-poster.png"` if that file exists; otherwise the
+example transcript. The check runs per request, so dropping the files in needs no restart:
+
+```sh
+sudo install -d -o siar-hosted -g siar-hosted -m 755 /opt/siar-hosted/data/public
+sudo install -o siar-hosted -g siar-hosted -m 644 demo.mp4 demo.webm demo-poster.png /opt/siar-hosted/data/public/
+```
+
+Browsers cache the files for an hour; use a new file name or wait when replacing one.
 
 ## Abuse limits
 

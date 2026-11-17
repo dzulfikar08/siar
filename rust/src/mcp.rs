@@ -178,6 +178,7 @@ fn need_str(args: &Value, k: &str) -> String {
 }
 
 fn call_tool(name: &str, a: &Value) -> Result<Value> {
+    crate::limits::check_tool(name)?;
     match name {
         "list_platforms" => match arg_str(a, "platform").filter(|p| !p.is_empty()) {
             Some(p) => platforms::platform_info(&p),
@@ -490,6 +491,7 @@ fn hosted_plan() -> Result<Option<Value>> {
         Obj::new()
             .set("id", p.id.clone())
             .set("name", p.name.clone())
+            .set("features", p.features.split(',').filter(|f| !f.is_empty()).map(Value::from).collect::<Vec<_>>())
             .set(
                 "limits",
                 Obj::new()

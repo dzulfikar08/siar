@@ -269,6 +269,9 @@ pub fn delete_automation(id: &str) -> Result<Value> {
 }
 
 fn enabled_for(account_id: &str, kinds: &[&str]) -> Result<Vec<Auto>> {
+    if !crate::limits::feature_ok("automations") {
+        return Ok(vec![]);
+    }
     let marks = vec!["?"; kinds.len()].join(",");
     let mut args: Vec<String> = vec![account_id.to_string()];
     args.extend(kinds.iter().map(|k| k.to_string()));
@@ -754,6 +757,12 @@ struct Job {
 }
 
 pub fn run_jobs(limit: i64) -> Result<usize> {
+    if !crate::limits::feature_ok("automations") {
+        // The plan no longer includes automations: queued replies and DMs are dropped (the
+        // automations themselves stay, and run again after an upgrade).
+        db::with(|c| Ok(c.execute("UPDATE jobs SET status = 'cancelled' WHERE status = 'pending'", [])?))?;
+        return Ok(0);
+    }
     let due = db::tx(true, |c| {
         let rows = db::rows(
             c,
@@ -939,11 +948,15 @@ pub fn poll_account(account_id: &str, comments: bool, dms: bool) -> Result<()> {
 /// Accounts to poll: those with enabled automations, plus all comment-capable ones if SIAR_COMMENT_SYNC=all.
 /// (account id, comments, dms), in first-seen order.
 pub fn poll_targets() -> Result<Vec<(String, bool, bool)>> {
-    let rows: Vec<(String, String)> = db::with(|c| {
-        db::rows(c, "SELECT DISTINCT account_id, kind FROM automations WHERE enabled = 1", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-    })?;
+    let rows: Vec<(String, String)> = if crate::limits::feature_ok("automations") {
+        db::with(|c| {
+            db::rows(c, "SELECT DISTINCT account_id, kind FROM automations WHERE enabled = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+        })?
+    } else {
+        vec![]
+    };
     let mut out: Vec<(String, bool, bool)> = vec![];
     for (acc, kind) in rows {
         let i = match out.iter().position(|o| o.0 == acc) {

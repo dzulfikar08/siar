@@ -372,3 +372,16 @@ table.tools code{background:none;border:0;padding:0}
 .receipt .methods tbody tr:last-child td{border-bottom:0}
 .fees-band{padding-top:3rem}
 @media (max-width:640px){table.tools td:first-child{white-space:normal}}
+
+/* ---------- tiers, comparison, hero video ---------- */
+.plans.four{grid-template-columns:repeat(auto-fit,minmax(min(100%,15.5rem),1fr))}
+.plan.featured{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset}
+.option .alt{margin:.2rem 0 0;font-size:.95rem}
+.cmp{margin:1rem 0 3rem}
+.cmp h2{margin-bottom:.5rem}
+.plans-compare td,.plans-compare th{font-variant-numeric:tabular-nums}
+.plans-compare tbody th{width:auto}
+.yes{color:var(--ok)}
+.no{color:var(--muted)}
+.demo{margin:0}
+.demo video{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:var(--r-l);background:var(--panel);box-shadow:0 30px 60px -30px rgba(0,0,0,.7)}

@@ -58,6 +58,7 @@ const LANDING: &str = include_str!("../web/landing.html");
 const DOCS: &str = include_str!("../web/docs.html");
 const SETUP: &str = include_str!("../web/setup.html");
 const PROMPT: &str = include_str!("../web/prompt.txt");
+const HERO_SESSION: &str = include_str!("../web/hero-session.html");
 const GITHUB: &str = "https://github.com/dzulfikar08/siar";
 
 /// Fill `{{name}}` slots in one pass. Values go in as given (escape them first) and are not
@@ -492,6 +493,11 @@ pub fn route(mut req: Request) {
         }
         let _ = req.respond(text("Not found", 404));
         return;
+    }
+
+    if get && parts.len() == 2 && parts[0] == "static" {
+        let name = parts[1].to_string();
+        return serve_static(req, &name);
     }
 
     let resp = match (parts.as_slice(), get, post) {
@@ -1202,38 +1208,53 @@ fn dashboard_body(s: &Session, query: &str, shown_key: Option<(String, String)>)
             b.push_str("</p><p class=\"note warn\" role=\"status\">Your prepaid period ends within 7 days. Pay for another period below to keep your plan.");
         }
     }
-    b.push_str("</p><p class=\"muted small\">Card prices include Polar's processing fee; rupiah payments show DOKU's admin fee as its own line before you pay. <a href=\"/pricing\">Pricing and fees</a></p><div class=\"plans\">");
-    for p in control::plans()?.into_iter().filter(|p| p.public && p.price_usd_cents > 0) {
+    b.push_str("</p><p class=\"muted small\">Card prices include Polar's processing fee; rupiah payments show DOKU's admin fee as its own line before you pay. <a href=\"/pricing\">Compare plans and fees</a></p><div class=\"plans\">");
+    let groups = paid_groups(&control::plans()?);
+    for g in &groups {
+        let l = lead(g);
+        let current = g.iter().any(|q| q.id == plan.id);
         let mut buttons = String::new();
-        if billing::polar_enabled() && p.polar_product_id.is_some() {
-            let price = billing::polar_price(&p);
-            buttons.push_str(&format!(
-                "<a class=\"btn\" href=\"/dashboard/billing/polar/{}\">Pay by card: {}/{} (incl. {} fee)</a>",
-                esc(&p.id),
-                usd(price.total),
-                esc(&p.interval),
-                usd(price.fee)
-            ));
-        }
-        if billing::doku_enabled() {
-            for (months, amount, currency) in control::plan_prices(&p.id, "doku")? {
+        if billing::polar_enabled() {
+            for q in g.iter().filter(|q| q.polar_product_id.is_some() && q.id != plan.id) {
+                let price = billing::polar_price(q);
                 buttons.push_str(&format!(
-                    "<a class=\"btn ghost\" href=\"/dashboard/billing/doku/{}/{months}\">Pay {} {} + admin fee for {months} month{} (QRIS, VA, e-wallet)</a>",
-                    esc(&p.id),
-                    esc(&currency),
-                    fmt_amount(amount),
-                    if months == 1 { "" } else { "s" }
+                    "<a class=\"btn{}\" href=\"/dashboard/billing/polar/{}\">Pay by card: {} {} (incl. {} fee)</a>",
+                    if q.interval == "month" { "" } else { " ghost" },
+                    esc(&q.id),
+                    usd(price.total),
+                    per(&q.interval),
+                    usd(price.fee)
                 ));
             }
         }
+        if billing::doku_enabled() {
+            for q in g {
+                for (months, amount, currency) in control::plan_prices(&q.id, "doku")? {
+                    buttons.push_str(&format!(
+                        "<a class=\"btn ghost\" href=\"/dashboard/billing/doku/{}/{months}\">Pay {} {} + admin fee for {months} month{} (QRIS, VA, e-wallet)</a>",
+                        esc(&q.id),
+                        esc(&currency),
+                        fmt_amount(amount),
+                        if months == 1 { "" } else { "s" }
+                    ));
+                }
+            }
+        }
+        let extras = feature_lines(l);
         b.push_str(&format!(
-            "<div class=\"plan{}\"><h3>{}</h3><p class=\"desc\">{}</p><p class=\"small\">{} accounts, {} posts a month, {} media storage</p><div class=\"actions pay\">{}</div></div>",
-            if p.id == plan.id { " paid" } else { "" },
-            esc(&p.name),
-            esc(&p.description),
-            p.max_accounts,
-            p.max_posts_month,
-            mb(p.max_storage_mb),
+            "<div class=\"plan{}\"><h3>{}{}</h3><p class=\"desc\">{}</p><p class=\"small\">{} accounts, {} posts a month, {} media storage</p>{}<div class=\"actions pay\">{}</div></div>",
+            if current { " paid" } else { "" },
+            esc(&l.name),
+            if current { " <span class=\"plan-tag\">Your plan</span>" } else { "" },
+            esc(&l.description),
+            l.max_accounts,
+            l.max_posts_month,
+            mb(l.max_storage_mb),
+            if extras.is_empty() {
+                "<p class=\"small muted\">No auto-replies or analytics tools.</p>".to_string()
+            } else {
+                format!("<ul class=\"limits\">{extras}</ul>")
+            },
             if buttons.is_empty() {
                 "<p class=\"muted\">Payments are not enabled yet.</p>".into()
             } else {
@@ -1275,12 +1296,21 @@ fn idr(amount: i64) -> String {
 fn polar_confirm(s: &Session, p: &control::Plan) -> Resp {
     let price = billing::polar_price(p);
     let f = billing::polar_fees();
+    let change = billing::polar_subscription_to_change(&s.tenant, &p.id).ok().flatten().is_some();
+    let (intro, button) = if change {
+        (
+            "You already pay by card, so your current subscription changes to this plan. Polar charges the prorated difference now, or credits it when the new plan costs less.",
+            "Change my subscription",
+        )
+    } else {
+        ("Check the amounts, then pay on Polar's checkout page.", "Continue to Polar")
+    };
     page(
         "Confirm payment",
         &format!(
-            "<div class=\"wrap narrow\"><h1>Subscribe to {}</h1><p class=\"muted\">Check the amounts, then pay on Polar's checkout page.</p><div class=\"receipt\"><table><tbody><tr><th>{} plan, per {}</th><td>{}</td></tr><tr><th>Card processing fee (Polar: {}% + {}{})</th><td>{}</td></tr><tr><th>Total per {}</th><td><strong>{}</strong></td></tr></tbody></table></div>\
+            "<div class=\"wrap narrow\"><h1>Subscribe to {}</h1><p class=\"muted\">{intro}</p><div class=\"receipt\"><table><tbody><tr><th>{} plan, per {}</th><td>{}</td></tr><tr><th>Card processing fee (Polar: {}% + {}{})</th><td>{}</td></tr><tr><th>Total per {}</th><td><strong>{}</strong></td></tr></tbody></table></div>\
 <p class=\"muted small\">The fee is what Polar, our merchant of record, charges for the payment; we pass it on at cost. Polar may add sales tax or VAT for your country at checkout. Renews every {} until you cancel.</p>\
-<form method=\"post\" action=\"/dashboard/billing/polar/{}\">{}<div class=\"actions\"><button>Continue to Polar</button><a href=\"/dashboard#billing\">Cancel</a></div></form></div>",
+<form method=\"post\" action=\"/dashboard/billing/polar/{}\">{}<div class=\"actions\"><button>{button}</button><a href=\"/dashboard#billing\">Cancel</a></div></form></div>",
             esc(&p.name),
             esc(&p.name),
             esc(&p.interval),
@@ -1474,8 +1504,18 @@ fn dashboard_post(req: &mut Request, parts: &[&str]) -> Resp {
         }
         ["apps", prefix, "delete"] => back(in_tenant(&s.tenant, || tenant::delete_byo_creds(prefix)).map(|_| format!("Removed your {prefix} app"))),
         ["billing", "polar", plan] => match control::plan(plan).ok().flatten() {
-            Some(p) => match billing::polar_checkout(&s.tenant, &p, s.email.as_deref()) {
-                Ok(url) => redirect(&url, None),
+            Some(p) => match billing::polar_subscription_to_change(&s.tenant, &p.id) {
+                // An existing card subscription changes in place: no second subscription.
+                Ok(Some(sub)) => back(billing::polar_change(&sub, &p).map(|_| {
+                    format!(
+                        "Your subscription is changing to {}. Polar confirms within a minute; refresh this page.",
+                        p.name
+                    )
+                })),
+                Ok(None) => match billing::polar_checkout(&s.tenant, &p, s.email.as_deref()) {
+                    Ok(url) => redirect(&url, None),
+                    Err(e) => back(Err(e)),
+                },
                 Err(e) => back(Err(e)),
             },
             None => back(Err(Error::Msg("Unknown plan".into()))),
@@ -1576,9 +1616,137 @@ fn landing(req: &Request) -> Resp {
             ("platforms", platform_list().as_str()),
             ("price_line", price_line(&plans).as_str()),
             ("hosted_price", hosted_price(&plans).as_str()),
+            ("hero_media", hero_media().as_str()),
         ],
     );
     page("siar: the social media scheduler your AI agent runs", &body, signed)
+}
+
+// ---------- static files (<data dir>/public, e.g. the hero demo video) ----------
+
+fn static_dir() -> std::path::PathBuf {
+    config().data_dir.join("public")
+}
+
+/// Content type for a servable file name: one path segment of `[A-Za-z0-9._-]`, no leading dot,
+/// and an allowed extension. Anything else is not served.
+pub fn static_type(name: &str) -> Option<&'static str> {
+    let ok = !name.is_empty() && name.len() <= 100 && !name.starts_with('.') && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    if !ok {
+        return None;
+    }
+    match name.rsplit_once('.')?.1.to_ascii_lowercase().as_str() {
+        "mp4" => Some("video/mp4"),
+        "webm" => Some("video/webm"),
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ByteRange {
+    Full,
+    /// First and last byte, inclusive.
+    Part(u64, u64),
+    Unsatisfiable,
+}
+
+/// One `Range: bytes=…` request against a file of `len` bytes. Malformed or multi-part ranges
+/// get the whole file, as RFC 9110 allows.
+pub fn parse_range(h: &str, len: u64) -> ByteRange {
+    let Some(spec) = h.trim().strip_prefix("bytes=") else {
+        return ByteRange::Full;
+    };
+    if spec.contains(',') {
+        return ByteRange::Full;
+    }
+    let Some((a, b)) = spec.split_once('-') else { return ByteRange::Full };
+    let (a, b) = (a.trim(), b.trim());
+    if a.is_empty() {
+        return match b.parse::<u64>() {
+            Ok(0) => ByteRange::Unsatisfiable,
+            Ok(_) if len == 0 => ByteRange::Unsatisfiable,
+            Ok(n) => ByteRange::Part(len - n.min(len), len - 1),
+            Err(_) => ByteRange::Full,
+        };
+    }
+    let Ok(start) = a.parse::<u64>() else { return ByteRange::Full };
+    let end = if b.is_empty() {
+        len.saturating_sub(1)
+    } else {
+        match b.parse::<u64>() {
+            Ok(e) if e >= start => e.min(len.saturating_sub(1)),
+            _ => return ByteRange::Full,
+        }
+    };
+    if start >= len {
+        return ByteRange::Unsatisfiable;
+    }
+    ByteRange::Part(start, end)
+}
+
+/// GET /static/<name>: files from <data dir>/public with Range support (Safari seeks mp4 with it).
+fn serve_static(req: Request, name: &str) {
+    use std::io::{Seek, SeekFrom};
+    let Some(ct) = static_type(name) else {
+        let _ = req.respond(text("Not found", 404));
+        return;
+    };
+    let mut file = match std::fs::File::open(static_dir().join(name)) {
+        Ok(f) if f.metadata().map(|m| m.is_file()).unwrap_or(false) => f,
+        _ => {
+            let _ = req.respond(text("Not found", 404));
+            return;
+        }
+    };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut headers = vec![
+        header("content-type", ct),
+        header("accept-ranges", "bytes"),
+        header("cache-control", "public, max-age=3600"),
+        header("x-content-type-options", "nosniff"),
+    ];
+    let range = hdr(&req, "range").map(|h| parse_range(&h, len)).unwrap_or(ByteRange::Full);
+    let (status, start, n) = match range {
+        ByteRange::Full => (200, 0, len),
+        ByteRange::Part(a, b) => {
+            headers.push(header("content-range", &format!("bytes {a}-{b}/{len}")));
+            (206, a, b - a + 1)
+        }
+        ByteRange::Unsatisfiable => {
+            let _ = req.respond(text("Range not satisfiable", 416).with_header(header("content-range", &format!("bytes */{len}"))));
+            return;
+        }
+    };
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        let _ = req.respond(text("Read error", 500));
+        return;
+    }
+    let r = Response::new(tiny_http::StatusCode(status), headers, file.take(n), Some(n as usize), None);
+    let _ = req.respond(r);
+}
+
+/// The landing hero: the demo video when <data dir>/public/demo.mp4 exists, else the transcript.
+fn hero_media() -> String {
+    let dir = static_dir();
+    if !dir.join("demo.mp4").is_file() {
+        return HERO_SESSION.to_string();
+    }
+    let poster = if dir.join("demo-poster.png").is_file() {
+        " poster=\"/static/demo-poster.png\""
+    } else {
+        ""
+    };
+    let webm = if dir.join("demo.webm").is_file() {
+        "<source src=\"/static/demo.webm\" type=\"video/webm\">"
+    } else {
+        ""
+    };
+    format!(
+        "<figure class=\"demo\"><video autoplay muted loop playsinline preload=\"metadata\"{poster} aria-label=\"Demo: an agent schedules a week of posts with siar\">{webm}<source src=\"/static/demo.mp4\" type=\"video/mp4\"></video></figure>"
+    )
 }
 
 /// The per-agent setup tabs (rust/web/setup.html) for an endpoint and a key or placeholder.
@@ -1605,8 +1773,12 @@ fn platform_list() -> String {
 }
 
 fn plan_limits(p: &control::Plan) -> String {
+    format!("<ul class=\"limits\">{}</ul>", plan_limit_items(p))
+}
+
+fn plan_limit_items(p: &control::Plan) -> String {
     format!(
-        "<ul class=\"limits\"><li><b>{}</b> connected accounts</li><li><b>{}</b> scheduled or published posts per month</li><li><b>{}</b> media storage, files up to {}</li><li><b>{}</b> API requests per minute per key</li></ul>",
+        "<li><b>{}</b> connected accounts</li><li><b>{}</b> scheduled or published posts per month</li><li><b>{}</b> media storage, files up to {}</li><li><b>{}</b> API requests per minute per key</li>",
         p.max_accounts,
         p.max_posts_month,
         mb(p.max_storage_mb),
@@ -1624,11 +1796,6 @@ fn mb(n: i64) -> String {
     }
 }
 
-fn same_limits(a: &control::Plan, b: &control::Plan) -> bool {
-    (a.max_accounts, a.max_posts_month, a.max_storage_mb, a.max_upload_mb, a.api_per_minute)
-        == (b.max_accounts, b.max_posts_month, b.max_storage_mb, b.max_upload_mb, b.api_per_minute)
-}
-
 fn per(interval: &str) -> String {
     match interval {
         "month" => "a month".into(),
@@ -1637,7 +1804,7 @@ fn per(interval: &str) -> String {
     }
 }
 
-/// "Free for 2 accounts and 30 posts a month. 10 accounts and 300 posts a month for $3.75 a month or $13.37 a year."
+/// "Free for 2 accounts and 30 posts a month. Basic: 10 accounts and 300 posts a month for $3.75 a month. ..."
 fn price_line(plans: &[control::Plan]) -> String {
     let mut out = String::new();
     if let Some(f) = plans.iter().find(|p| p.public && p.price_usd_cents == 0) {
@@ -1646,19 +1813,24 @@ fn price_line(plans: &[control::Plan]) -> String {
             f.max_accounts, f.max_posts_month
         ));
     }
-    let paid: Vec<&control::Plan> = plans.iter().filter(|p| p.public && p.price_usd_cents > 0).collect();
-    if let Some(first) = paid.first() {
-        let prices: Vec<String> = paid
-            .iter()
-            .filter(|p| p.max_accounts == first.max_accounts && p.max_posts_month == first.max_posts_month)
-            .map(|p| format!("<strong>{}</strong> {}", usd(billing::polar_price(p).total), per(&p.interval)))
-            .collect();
+    for g in paid_groups(plans) {
+        let l = lead(&g);
+        let extra = match (l.has_feature("automations"), l.has_feature("analytics")) {
+            (true, true) => ", auto-replies and analytics",
+            (true, false) => " and auto-replies",
+            (false, true) => " and analytics",
+            _ => "",
+        };
         out.push_str(&format!(
-            " {} accounts and {} posts a month for {}, card fee included.",
-            first.max_accounts,
-            first.max_posts_month,
-            prices.join(" or ")
+            " <strong>{}</strong>: {} accounts{extra} for {} {}.",
+            esc(&l.name),
+            l.max_accounts,
+            usd(billing::polar_price(l).total),
+            per(&l.interval)
         ));
+    }
+    if !out.is_empty() && plans.iter().any(|p| p.public && p.price_usd_cents > 0) {
+        out.push_str(" Card fee included.");
     }
     out
 }
@@ -1712,72 +1884,179 @@ fn docs(req: &Request) -> Resp {
     page("Docs", &body, signed_in(req))
 }
 
+/// Public paid plans grouped by offer (tier), in pricing order.
+fn paid_groups(plans: &[control::Plan]) -> Vec<Vec<control::Plan>> {
+    let mut groups: Vec<Vec<control::Plan>> = vec![];
+    for p in plans.iter().filter(|p| p.public && p.price_usd_cents > 0) {
+        match groups.iter_mut().find(|g| g[0].group() == p.group()) {
+            Some(g) => g.push(p.clone()),
+            None => groups.push(vec![p.clone()]),
+        }
+    }
+    groups
+}
+
+/// The plan an offer is named after and shows limits from: its monthly plan, else the first.
+fn lead(g: &[control::Plan]) -> &control::Plan {
+    g.iter().find(|p| p.interval == "month").unwrap_or(&g[0])
+}
+
+/// "Rp15.000 for 1 month, Rp45.000 for 3 months" over the plans of an offer.
+fn idr_periods(g: &[control::Plan]) -> Vec<String> {
+    let mut out = vec![];
+    for q in g {
+        for (m, a, _) in control::plan_prices(&q.id, "doku").unwrap_or_default() {
+            out.push(format!("{} for {m} month{}", idr(a), if m == 1 { "" } else { "s" }));
+        }
+    }
+    out
+}
+
+/// "$39.04 a year ($36.00 + $3.04 card fee)", with the saving against 12 monthly payments.
+fn other_period(q: &control::Plan, monthly_total: Option<i64>) -> String {
+    let price = billing::polar_price(q);
+    let saving = match (q.interval.as_str(), monthly_total) {
+        ("year", Some(m)) if m * 12 > price.total => format!("<span class=\"saving\">{} less than 12 monthly payments</span>", usd(m * 12 - price.total)),
+        _ => String::new(),
+    };
+    format!(
+        "<div class=\"option\"><p class=\"alt\"><strong>{} {}</strong> <span class=\"muted\">({} + {} card processing fee)</span></p>{saving}</div>",
+        usd(price.total),
+        per(&q.interval),
+        usd(price.net),
+        usd(price.fee)
+    )
+}
+
+fn yes_no(on: bool) -> &'static str {
+    if on {
+        "<span class=\"yes\">Yes</span>"
+    } else {
+        "<span class=\"no\">No</span>"
+    }
+}
+
+/// Free, each paid offer and self-hosted side by side.
+fn compare_table(free: &[&control::Plan], groups: &[Vec<control::Plan>]) -> String {
+    let cols: Vec<&control::Plan> = free.iter().copied().chain(groups.iter().map(|g| lead(g))).collect();
+    let mut head = String::new();
+    for p in &cols {
+        head.push_str(&format!("<th scope=\"col\">{}</th>", esc(&p.name)));
+    }
+    head.push_str("<th scope=\"col\">Self-hosted</th>");
+    let row = |label: &str, cells: Vec<String>, last: &str| {
+        format!(
+            "<tr><th scope=\"row\">{label}</th>{}<td>{last}</td></tr>",
+            cells.iter().map(|c| format!("<td>{c}</td>")).collect::<String>()
+        )
+    };
+    let mut rows = String::new();
+    rows.push_str(&row(
+        "Price",
+        cols.iter()
+            .map(|p| {
+                if p.price_usd_cents == 0 {
+                    "$0".into()
+                } else {
+                    format!("{} {}", usd(billing::polar_price(p).total), per(&p.interval))
+                }
+            })
+            .collect(),
+        "$0",
+    ));
+    rows.push_str(&row(
+        "Connected accounts",
+        cols.iter().map(|p| p.max_accounts.to_string()).collect(),
+        "No limit",
+    ));
+    rows.push_str(&row(
+        "Posts per month",
+        cols.iter().map(|p| p.max_posts_month.to_string()).collect(),
+        "No limit",
+    ));
+    rows.push_str(&row("Media storage", cols.iter().map(|p| mb(p.max_storage_mb)).collect(), "Your disk"));
+    rows.push_str(&row("Largest upload", cols.iter().map(|p| mb(p.max_upload_mb)).collect(), "No limit"));
+    rows.push_str(&row(
+        "API requests per minute",
+        cols.iter().map(|p| p.api_per_minute.to_string()).collect(),
+        "No limit",
+    ));
+    rows.push_str(&row(
+        "Posting, comments, DMs, ideas, <code>best_times</code>",
+        cols.iter().map(|_| yes_no(true).to_string()).collect(),
+        yes_no(true),
+    ));
+    rows.push_str(&row(
+        "Auto-replies (<code>create_automation</code>)",
+        cols.iter().map(|p| yes_no(p.has_feature("automations")).to_string()).collect(),
+        yes_no(true),
+    ));
+    rows.push_str(&row(
+        "Analytics (<code>post_performance</code>, <code>account_analytics</code> and others)",
+        cols.iter().map(|p| yes_no(p.has_feature("analytics")).to_string()).collect(),
+        yes_no(true),
+    ));
+    format!(
+        "<section class=\"cmp\" aria-labelledby=\"cmp-title\"><h2 id=\"cmp-title\">Compare plans</h2><div class=\"table-scroll\"><table class=\"compare plans-compare\"><thead><tr><td></td>{head}</tr></thead><tbody>{rows}</tbody></table></div></section>"
+    )
+}
+
+/// Extra tools a plan includes, as limit lines.
+fn feature_lines(p: &control::Plan) -> String {
+    let mut out = String::new();
+    if p.has_feature("automations") {
+        out.push_str("<li><b>Auto-replies</b>: your agent sets up replies and DMs for new comments and messages</li>");
+    }
+    if p.has_feature("analytics") {
+        out.push_str("<li><b>Analytics</b>: post and account statistics, metric history</li>");
+    }
+    out
+}
+
 fn pricing(req: &Request) -> Resp {
     let signed = signed_in(req);
     let fees = billing::polar_fees();
     let plans: Vec<control::Plan> = control::plans().unwrap_or_default().into_iter().filter(|p| p.public).collect();
+    let free: Vec<&control::Plan> = plans.iter().filter(|p| p.price_usd_cents == 0).collect();
+    let groups = paid_groups(&plans);
     let mut cards = String::new();
     let mut fee_tables = String::new();
 
-    // Free plans: one card each.
-    for p in plans.iter().filter(|p| p.price_usd_cents == 0) {
+    for p in &free {
         let (href, label) = if signed {
             ("/dashboard", "Open your dashboard")
         } else {
             ("/login", "Create a free account")
         };
         cards.push_str(&format!(
-            "<div class=\"plan\"><h2>{}</h2><p class=\"desc\">{}</p><p class=\"amount\">$0</p><p class=\"fee\">No card needed. Sign in with GitHub or Google.</p>{}<div class=\"actions\"><a class=\"btn\" href=\"{href}\">{label}</a></div></div>",
+            "<div class=\"plan\"><h2>{}</h2><p class=\"desc\">{}</p><p class=\"amount\">$0</p><p class=\"fee\">No card needed. Sign in with GitHub or Google.</p>{}<div class=\"actions\"><a class=\"btn ghost\" href=\"{href}\">{label}</a></div></div>",
             esc(&p.name),
             esc(&p.description),
             plan_limits(p)
         ));
     }
 
-    // Paid plans with the same limits share a card, one option per billing period.
-    let paid: Vec<&control::Plan> = plans.iter().filter(|p| p.price_usd_cents > 0).collect();
-    let mut done: Vec<String> = vec![];
-    for p in &paid {
-        if done.contains(&p.id) {
-            continue;
+    // One card per offer: the monthly price first, the yearly price and the rupiah periods below.
+    for (gi, g) in groups.iter().enumerate() {
+        let l = lead(g);
+        let price = billing::polar_price(l);
+        let monthly = g.iter().find(|q| q.interval == "month").map(|q| billing::polar_price(q).total);
+        let mut options = format!(
+            "<div class=\"option\"><p class=\"amount\">{} <small>{}</small></p><p class=\"fee\">{} + {} card processing fee</p></div>",
+            usd(price.total),
+            per(&l.interval),
+            usd(price.net),
+            usd(price.fee)
+        );
+        for q in g.iter().filter(|q| q.id != l.id) {
+            options.push_str(&other_period(q, monthly));
         }
-        let group: Vec<&control::Plan> = paid.iter().copied().filter(|q| same_limits(p, q)).collect();
-        done.extend(group.iter().map(|q| q.id.clone()));
-        let monthly = group.iter().find(|q| q.interval == "month").map(|q| billing::polar_price(q).total);
-        let mut options = String::new();
-        for q in &group {
-            let price = billing::polar_price(q);
-            let saving = match (q.interval.as_str(), monthly) {
-                ("year", Some(m)) if m * 12 > price.total => format!(
-                    "<span class=\"saving\">{} less than 12 monthly payments</span><p class=\"fee\">Works out to {} a month.</p>",
-                    usd(m * 12 - price.total),
-                    usd(price.total / 12)
-                ),
-                _ => String::new(),
-            };
-            let periods = control::plan_prices(&q.id, "doku").unwrap_or_default();
-            let idr_line: Vec<String> = periods
-                .iter()
-                .map(|(m, a, _)| format!("{} for {m} month{}", idr(*a), if *m == 1 { "" } else { "s" }))
-                .collect();
-            options.push_str(&format!(
-                "<div class=\"option\">{}<p class=\"amount\">{} <small>{}</small></p><p class=\"fee\">{} + {} card processing fee</p>{saving}{}</div>",
-                if group.len() > 1 {
-                    format!("<h3>{}</h3>", esc(&q.name))
-                } else {
-                    String::new()
-                },
-                usd(price.total),
-                per(&q.interval),
-                usd(price.net),
-                usd(price.fee),
-                if idr_line.is_empty() {
-                    String::new()
-                } else {
-                    format!("<p class=\"fee\">Or prepaid in rupiah: {} + admin fee.</p>", esc(&idr_line.join(", ")))
-                }
-            ));
-            if let Some((m, a, _)) = periods.first() {
+        let periods = idr_periods(g);
+        if !periods.is_empty() {
+            options.push_str(&format!("<p class=\"fee\">Or prepaid in rupiah: {} + admin fee.</p>", esc(&periods.join(", "))));
+        }
+        for q in g {
+            if let Some((m, a, _)) = control::plan_prices(&q.id, "doku").unwrap_or_default().first() {
                 let mut rows = String::new();
                 for method in billing::doku_methods().unwrap_or_default() {
                     if let Ok(qt) = billing::doku_quote(q, *m, &method.method) {
@@ -1798,23 +2077,28 @@ fn pricing(req: &Request) -> Resp {
                 ));
             }
         }
-        let title: Vec<&str> = group.iter().map(|q| q.name.as_str()).collect();
         let (href, label) = if signed {
-            ("/dashboard#billing", "Upgrade in your dashboard")
+            ("/dashboard#billing", format!("Choose {} in your dashboard", l.name))
         } else {
-            ("/login", "Start free, upgrade any time")
+            ("/login", "Start free, upgrade any time".to_string())
         };
+        // The last offer (the one with the most) is the highlighted card.
+        let featured = groups.len() > 1 && gi == groups.len() - 1;
         cards.push_str(&format!(
-            "<div class=\"plan paid\"><h2>{}</h2><p class=\"desc\">{}</p>{options}{}<div class=\"actions\"><a class=\"btn\" href=\"{href}\">{label}</a></div></div>",
-            esc(&title.join(" or ")),
-            if group.len() > 1 { "The same plan, paid each month or once a year.".to_string() } else { esc(&p.description) },
-            plan_limits(p)
+            "<div class=\"plan paid{}\"><h2>{}</h2><p class=\"desc\">{}</p>{options}<ul class=\"limits\">{}{}</ul><div class=\"actions\"><a class=\"btn{}\" href=\"{href}\">{}</a></div></div>",
+            if featured { " featured" } else { "" },
+            esc(&l.name),
+            esc(&l.description),
+            plan_limit_items(l),
+            feature_lines(l),
+            if featured { "" } else { " ghost" },
+            esc(&label)
         ));
     }
 
     cards.push_str(&format!(
         "<div class=\"plan selfhost\"><h2>Self-hosted</h2><p class=\"desc\">Run the same binary on your own server.</p><p class=\"amount\">$0</p><p class=\"fee\">AGPL-3.0. You run the server and register your own platform apps.</p>\
-<ul class=\"limits\"><li>No siar plan limits; each platform's own API limits still apply</li><li>Same MCP tools as the hosted service</li><li>Your data stays on your disk</li></ul><div class=\"actions\"><a class=\"btn ghost\" href=\"{GITHUB}\">Read the source on GitHub</a></div></div>"
+<ul class=\"limits\"><li>No siar plan limits; each platform's own API limits still apply</li><li>Every MCP tool, auto-replies and analytics included</li><li>Your data stays on your disk</li></ul><div class=\"actions\"><a class=\"btn ghost\" href=\"{GITHUB}\">Read the source on GitHub</a></div></div>"
     ));
 
     let doku = if fee_tables.is_empty() {
@@ -1822,15 +2106,18 @@ fn pricing(req: &Request) -> Resp {
     } else {
         format!("<div><h2>Paying in rupiah</h2><p class=\"muted\">You choose the payment method before paying; its admin fee (Biaya admin, set by DOKU, VAT included) is added as a separate line:</p>{fee_tables}</div>")
     };
+    let compare = compare_table(&free, &groups);
     page(
         "Pricing",
         &format!(
-            "<div class=\"wrap\"><div class=\"page-head\"><h1>Pricing</h1><p>Start free. Pay in USD by card through Polar, or in rupiah with QRIS, virtual accounts or e-wallets through DOKU. You pay the payment provider's fee, shown as its own line; the plan price is what we receive.</p></div>\
-<div class=\"plans\">{cards}</div>\
+            "<div class=\"wrap\"><div class=\"page-head\"><h1>Pricing</h1><p>Start free. Pay in USD by card through Polar, or in rupiah with QRIS, virtual accounts or e-wallets through DOKU. You pay the payment provider's fee, shown as its own line; the plan price is what we receive. A year costs the same as four months.</p></div>\
+<div class=\"plans four\">{cards}</div>{compare}\
 <section class=\"band fees-band\" aria-labelledby=\"fees-title\"><div class=\"fees-wrap\"><div><h2 id=\"fees-title\">Fees, line by line</h2>\
 <p class=\"muted\">Card prices include Polar's fee ({}% + {}{}), passed on at cost. Polar may add sales tax or VAT for your country at checkout. Cancel any time; a plan stays active until the end of the period you paid for.</p>\
 <dl class=\"qa\"><dt>Do I need a card for the free plan?</dt><dd>No. Sign in with GitHub or Google and the free plan starts right away.</dd>\
 <dt>What happens when I reach a limit?</dt><dd>The tool your agent called returns an error that names the limit and how to raise it. Nothing else changes.</dd>\
+<dt>What happens to my auto-replies if I leave Pro?</dt><dd>They stay saved but stop running. Upgrade again and they pick up new comments and messages.</dd>\
+<dt>Can I switch between Basic and Pro?</dt><dd>Yes, from the dashboard. A card subscription changes in place and Polar charges or credits the difference.</dd>\
 <dt>Why do some networks need my own developer app?</dt><dd>Instagram, Threads, Facebook, LinkedIn, YouTube and the other sign-in networks only let approved apps post. Until siar's own apps are approved, you register an app and paste its id and secret; the dashboard gives you the redirect URI. This works on every plan.</dd>\
 <dt>Do rupiah payments renew?</dt><dd>No. They buy a prepaid period, and we e-mail you 7 days and 1 day before it ends.</dd></dl></div>{doku}</div></section></div>",
             fees.percent,
@@ -1892,6 +2179,24 @@ fn terms(req: &Request) -> Resp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn static_names_and_ranges() {
+        assert_eq!(static_type("demo.mp4"), Some("video/mp4"));
+        assert_eq!(static_type("demo-poster.PNG"), Some("image/png"));
+        for bad in ["", ".env", "../control.sqlite", "a/b.mp4", "demo.svg", "demo.html", "demo", "%2e%2e.mp4"] {
+            assert_eq!(static_type(bad), None, "{bad}");
+        }
+        assert_eq!(parse_range("bytes=0-99", 1000), ByteRange::Part(0, 99));
+        assert_eq!(parse_range("bytes=500-", 1000), ByteRange::Part(500, 999));
+        assert_eq!(parse_range("bytes=-100", 1000), ByteRange::Part(900, 999));
+        assert_eq!(parse_range("bytes=-5000", 1000), ByteRange::Part(0, 999));
+        assert_eq!(parse_range("bytes=0-5000", 1000), ByteRange::Part(0, 999));
+        assert_eq!(parse_range("bytes=1000-", 1000), ByteRange::Unsatisfiable);
+        assert_eq!(parse_range("bytes=0-1,5-6", 1000), ByteRange::Full);
+        assert_eq!(parse_range("items=0-1", 1000), ByteRange::Full);
+        assert_eq!(parse_range("bytes=9-3", 1000), ByteRange::Full);
+    }
 
     #[test]
     fn only_verified_emails_link() {

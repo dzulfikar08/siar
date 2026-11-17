@@ -287,7 +287,10 @@ pub fn refresh_due() -> Result<()> {
         let published = c.query_row("SELECT MAX(published_at) FROM targets WHERE status = 'published'", [], |r| r.get(0))?;
         Ok((post, job, engage, published))
     })?;
-    control::set_due(&t.id, post, job, engage > 0 || env("SIAR_COMMENT_SYNC").as_deref() == Some("all"), published)
+    // Without automations on the plan, pending jobs are dropped by the next run and nothing is polled.
+    let automations = crate::limits::feature_ok("automations");
+    let engage = (automations && engage > 0) || env("SIAR_COMMENT_SYNC").as_deref() == Some("all");
+    control::set_due(&t.id, post, job, engage, published)
 }
 
 #[cfg(test)]

@@ -61,6 +61,56 @@ pub fn check_post(post_id: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// The plan feature a tool needs, if any. `best_times` stays on every plan.
+pub fn tool_feature(tool: &str) -> Option<&'static str> {
+    match tool {
+        "create_automation" | "update_automation" => Some("automations"),
+        "account_analytics" | "post_analytics" | "post_performance" | "post_metric_history" => Some("analytics"),
+        _ => None,
+    }
+}
+
+fn feature_label(feature: &str) -> &'static str {
+    match feature {
+        "automations" => "Auto-replies (automations)",
+        _ => "Analytics",
+    }
+}
+
+/// Before a tool runs: refuse tools whose feature the plan does not include.
+pub fn check_tool(tool: &str) -> Result<()> {
+    let Some(feature) = tool_feature(tool) else { return Ok(()) };
+    let Some((_, p)) = plan()? else { return Ok(()) };
+    if p.has_feature(feature) {
+        return Ok(());
+    }
+    let need = control::plans()?
+        .into_iter()
+        .filter(|q| q.public && q.has_feature(feature))
+        .min_by_key(|q| q.price_usd_cents)
+        .map(|q| format!("the {} plan", q.name))
+        .unwrap_or_else(|| "another plan".into());
+    bail!(
+        "Plan limit: {} are not included in the {} plan; {tool} needs {need}. {}",
+        feature_label(feature),
+        p.name,
+        upgrade_hint()
+    );
+}
+
+/// Whether the current tenant's plan includes a feature (always true in single-tenant mode).
+/// Automations of a tenant without it stay saved but do not run.
+pub fn feature_ok(feature: &str) -> bool {
+    match plan() {
+        Ok(Some((_, p))) => p.has_feature(feature),
+        Ok(None) => true,
+        Err(e) => {
+            eprintln!("[limits] plan lookup failed: {e}");
+            true
+        }
+    }
+}
+
 pub fn record_post(post_id: &str) -> Result<()> {
     if let Some(t) = tenant::current_id() {
         control::record_post(&t, post_id)?;

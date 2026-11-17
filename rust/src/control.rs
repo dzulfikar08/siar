@@ -9,7 +9,7 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::util::{bail, hex, now, random_bytes, Error, Obj, Result};
 
-const MIGRATIONS: [&str; 2] = [
+const MIGRATIONS: [&str; 3] = [
     "CREATE TABLE users (
      id TEXT PRIMARY KEY,
      email TEXT,
@@ -171,6 +171,9 @@ const MIGRATIONS: [&str; 2] = [
      last_error TEXT,
      created_at INTEGER NOT NULL
    );",
+    // 3: plan tiers (a tier groups its monthly and yearly plans) and plan features.
+    "ALTER TABLE plans ADD COLUMN tier TEXT NOT NULL DEFAULT '';
+   ALTER TABLE plans ADD COLUMN features TEXT NOT NULL DEFAULT '';",
 ];
 
 static CONTROL: OnceLock<Mutex<Connection>> = OnceLock::new();
@@ -205,6 +208,139 @@ fn seed_defaults(c: &Connection) -> Result<()> {
     if seeded.is_none() {
         seed_v2(c)?;
         c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('seed_v2', '1')", [])?;
+    }
+    let seeded: Option<String> = c.query_row("SELECT value FROM settings WHERE key = 'seed_v3'", [], |r| r.get(0)).optional()?;
+    if seeded.is_none() {
+        c.execute_batch("BEGIN")?;
+        let r = seed_v3(c).and_then(|_| Ok(c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('seed_v3', '1')", [])?));
+        c.execute_batch(if r.is_ok() { "COMMIT" } else { "ROLLBACK" })?;
+        r?;
+    }
+    Ok(())
+}
+
+/// Two paid tiers, Basic and Pro, each billed monthly or yearly (yearly net = 4x monthly net).
+/// The single paid plan of seed_v2 ('monthly', 'yearly') becomes Basic and keeps its Polar
+/// products; subscriptions and invoices move along. Prices are NET, as in seed_v2.
+fn seed_v3(c: &Connection) -> Result<()> {
+    let product = |id: &str| -> Result<Option<String>> {
+        Ok(
+            c.query_row("SELECT polar_product_id FROM plans WHERE id = ?", [id], |r| r.get::<_, Option<String>>(0))
+                .optional()?
+                .flatten(),
+        )
+    };
+    let (basic_month, basic_year) = (product("monthly")?, product("yearly")?);
+    // (id, name, description, net cents, Polar product, interval, tier, features, accounts, posts/month, storage MB, upload MB, requests/min, sort)
+    type Row<'a> = (
+        &'a str,
+        &'a str,
+        &'a str,
+        i64,
+        Option<String>,
+        &'a str,
+        &'a str,
+        &'a str,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+    );
+    let rows: [Row; 4] = [
+        (
+            "basic",
+            "Basic",
+            "For one person or one brand",
+            300,
+            basic_month,
+            "month",
+            "basic",
+            "",
+            10,
+            300,
+            2048,
+            200,
+            120,
+            1,
+        ),
+        (
+            "basic_yearly",
+            "Basic yearly",
+            "Basic, paid once a year",
+            1200,
+            basic_year,
+            "year",
+            "basic",
+            "",
+            10,
+            300,
+            2048,
+            200,
+            120,
+            2,
+        ),
+        (
+            "pro",
+            "Pro",
+            "More accounts, auto-replies and analytics",
+            900,
+            None,
+            "month",
+            "pro",
+            "automations,analytics",
+            30,
+            900,
+            6144,
+            500,
+            240,
+            3,
+        ),
+        (
+            "pro_yearly",
+            "Pro yearly",
+            "Pro, paid once a year",
+            3600,
+            None,
+            "year",
+            "pro",
+            "automations,analytics",
+            30,
+            900,
+            6144,
+            500,
+            240,
+            4,
+        ),
+    ];
+    for (id, name, desc, cents, product, interval, tier, features, acc, posts, storage, upload, rpm, sort) in rows {
+        c.execute(
+            "INSERT OR IGNORE INTO plans (id, name, description, price_usd_cents, polar_product_id, interval, tier, features, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, sort)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            params![id, name, desc, cents, product, interval, tier, features, acc, posts, storage, upload, rpm, sort],
+        )?;
+    }
+    c.execute_batch(
+        "UPDATE subscriptions SET plan_id = 'basic' WHERE plan_id = 'monthly';
+         UPDATE subscriptions SET plan_id = 'basic_yearly' WHERE plan_id = 'yearly';
+         UPDATE invoices SET plan_id = 'basic' WHERE plan_id = 'monthly';
+         UPDATE invoices SET plan_id = 'basic_yearly' WHERE plan_id = 'yearly';
+         DELETE FROM plans WHERE id IN ('monthly', 'yearly');",
+    )?;
+    // IDR prepaid periods (DOKU), net; 12 months cost 4 monthly payments, like the USD yearly price.
+    for (plan, months, amount) in [
+        ("basic", 1, 15_000),
+        ("basic", 3, 45_000),
+        ("basic", 12, 60_000),
+        ("pro", 1, 45_000),
+        ("pro", 3, 135_000),
+        ("pro", 12, 180_000),
+    ] {
+        c.execute(
+            "INSERT OR IGNORE INTO plan_prices (plan_id, provider, months, amount, currency) VALUES (?, 'doku', ?, ?, 'IDR')",
+            params![plan, months, amount],
+        )?;
     }
     Ok(())
 }
@@ -430,10 +566,28 @@ pub struct Plan {
     pub interval: String,
     /// Order on the pricing page.
     pub sort: i64,
+    /// Plans with the same tier are one offer billed per month or per year ('' = on its own).
+    pub tier: String,
+    /// Comma-separated features beyond the limits: `automations`, `analytics`.
+    pub features: String,
 }
 
-const PLAN_COLS: &str =
-    "id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, interval, sort";
+impl Plan {
+    pub fn has_feature(&self, feature: &str) -> bool {
+        self.features.split(',').any(|f| f.trim() == feature)
+    }
+
+    /// Plans of one offer share this key: the tier, or the plan id when it has none.
+    pub fn group(&self) -> &str {
+        if self.tier.is_empty() {
+            &self.id
+        } else {
+            &self.tier
+        }
+    }
+}
+
+const PLAN_COLS: &str = "id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, interval, sort, tier, features";
 
 fn plan_row(r: &rusqlite::Row) -> rusqlite::Result<Plan> {
     Ok(Plan {
@@ -450,6 +604,8 @@ fn plan_row(r: &rusqlite::Row) -> rusqlite::Result<Plan> {
         public: r.get::<_, i64>(10)? != 0,
         interval: r.get(11)?,
         sort: r.get(12)?,
+        tier: r.get(13)?,
+        features: r.get(14)?,
     })
 }
 
@@ -473,20 +629,33 @@ pub fn plan_prices(plan_id: &str, provider: &str) -> Result<Vec<(i64, i64, Strin
     })
 }
 
+/// Features as stored: a JSON array or a comma-separated string, normalised to "a,b".
+pub fn features_of(v: Option<&Value>) -> String {
+    let list: Vec<String> = match v {
+        Some(Value::Array(a)) => a.iter().filter_map(|x| x.as_str()).map(|x| x.trim().to_string()).collect(),
+        Some(Value::String(s)) => s.split(',').map(|x| x.trim().to_string()).collect(),
+        _ => vec![],
+    };
+    list.into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(",")
+}
+
 /// Insert or replace a plan from JSON (operator CLI): {id, name, price_usd_cents (NET), interval
-/// ("month" | "year"), max_accounts, ..., prices: [{provider, months, amount (NET IDR), currency}]}.
+/// ("month" | "year"), tier, features (["automations", "analytics"]), max_accounts, ...,
+/// prices: [{provider, months, amount (NET IDR), currency}]}.
 pub fn put_plan(v: &Value) -> Result<()> {
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(|x| x.to_string());
     let i = |k: &str, d: i64| v.get(k).and_then(|x| x.as_i64()).unwrap_or(d);
     let Some(id) = s("id") else { bail!("plan needs an id") };
+    let features = features_of(v.get("features"));
+    let tier = s("tier").unwrap_or_default();
     with(|c| {
         c.execute(
-            "INSERT INTO plans (id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, sort, interval)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO plans (id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, sort, interval, tier, features)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (id) DO UPDATE SET name = excluded.name, description = excluded.description, price_usd_cents = excluded.price_usd_cents,
                polar_product_id = excluded.polar_product_id, max_accounts = excluded.max_accounts, max_posts_month = excluded.max_posts_month,
                max_storage_mb = excluded.max_storage_mb, max_upload_mb = excluded.max_upload_mb, api_per_minute = excluded.api_per_minute,
-               public = excluded.public, sort = excluded.sort, interval = excluded.interval",
+               public = excluded.public, sort = excluded.sort, interval = excluded.interval, tier = excluded.tier, features = excluded.features",
             params![
                 id,
                 s("name").unwrap_or_else(|| id.clone()),
@@ -500,7 +669,9 @@ pub fn put_plan(v: &Value) -> Result<()> {
                 i("api_per_minute", 60),
                 v.get("public").and_then(|x| x.as_bool().map(i64::from).or_else(|| x.as_i64())).unwrap_or(1),
                 i("sort", 0),
-                s("interval").filter(|x| x == "year").unwrap_or_else(|| "month".into())
+                s("interval").filter(|x| x == "year").unwrap_or_else(|| "month".into()),
+                tier,
+                features
             ],
         )?;
         if let Some(prices) = v.get("prices").and_then(|p| p.as_array()) {

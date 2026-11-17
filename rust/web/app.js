@@ -75,3 +75,13 @@
   window.addEventListener("hashchange", open);
   open();
 })();
+
+// The hero demo video: no autoplay for people who ask for reduced motion; give them controls.
+(function () {
+  if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.querySelectorAll("video[autoplay]").forEach(function (v) {
+    v.pause();
+    v.removeAttribute("autoplay");
+    v.controls = true;
+  });
+})();

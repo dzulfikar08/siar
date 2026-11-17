@@ -248,7 +248,7 @@ fn hosted_mode() {
     // ---------- plan limits ----------
     siar::control::put_plan(&json!({ "id": "tiny", "name": "Tiny", "max_accounts": 1, "max_posts_month": 1, "max_storage_mb": 1, "max_upload_mb": 1 }))
         .unwrap();
-    siar::control::put_plan(&json!({ "id": "pro", "name": "Pro", "price_usd_cents": 100, "polar_product_id": "prod_pro", "max_accounts": 10, "max_posts_month": 100, "max_storage_mb": 100, "max_upload_mb": 10, "prices": [{ "provider": "doku", "months": 1, "amount": 16000, "currency": "IDR" }] })).unwrap();
+    siar::control::put_plan(&json!({ "id": "starter", "name": "Starter", "price_usd_cents": 100, "polar_product_id": "prod_starter", "max_accounts": 10, "max_posts_month": 100, "max_storage_mb": 100, "max_upload_mb": 10, "prices": [{ "provider": "doku", "months": 1, "amount": 16000, "currency": "IDR" }] })).unwrap();
     siar::control::set_setting("default_plan", "tiny").unwrap();
     let e = connect(&a, "discord", "222").unwrap_err().to_string();
     assert!(e.contains("Plan limit") && e.contains("1 connected account"), "{e}");
@@ -267,41 +267,57 @@ fn hosted_mode() {
     assert!(due.is_some());
 
     // ---------- Polar webhooks: signature, idempotency, amount with fees, plan changes ----------
-    let pro = siar::control::plan("pro").unwrap().unwrap();
-    let gross = siar::billing::polar_price(&pro).total;
+    let starter = siar::control::plan("starter").unwrap().unwrap();
+    let gross = siar::billing::polar_price(&starter).total;
     assert_eq!(gross, 161, "$1.00 net at 5% + 1.5% + 50 cents");
-    let short = json!({ "type": "subscription.active", "data": { "id": "sub_0", "status": "active", "amount": 100, "product_id": "prod_pro", "current_period_end": siar::util::iso(now() + 30 * 86_400_000), "metadata": { "tenant_id": a } } }).to_string();
+    let short = json!({ "type": "subscription.active", "data": { "id": "sub_0", "status": "active", "amount": 100, "product_id": "prod_starter", "current_period_end": siar::util::iso(now() + 30 * 86_400_000), "metadata": { "tenant_id": a } } }).to_string();
     assert_eq!(
         polar_post(&polar_secret, "evt_0", &short),
         (200, "ignored\n".to_string()),
         "the net price alone does not activate"
     );
     assert_eq!(siar::control::effective_plan(&a).unwrap().id, "tiny");
-    let ev = json!({ "type": "subscription.active", "data": { "id": "sub_1", "status": "active", "amount": gross, "product_id": "prod_pro", "current_period_end": siar::util::iso(now() + 30 * 86_400_000), "metadata": { "tenant_id": a }, "customer": { "external_id": a } } }).to_string();
+    let ev = json!({ "type": "subscription.active", "data": { "id": "sub_1", "status": "active", "amount": gross, "product_id": "prod_starter", "current_period_end": siar::util::iso(now() + 30 * 86_400_000), "metadata": { "tenant_id": a }, "customer": { "external_id": a } } }).to_string();
     assert_eq!(polar_post(&polar_secret, "evt_1", &ev), (200, "applied\n".to_string()));
     assert_eq!(polar_post(&polar_secret, "evt_1", &ev), (200, "duplicate\n".to_string()));
     assert_eq!(polar_post("whsec_d3JvbmcgZW5vdWdoIGtleSBmb3IgdGVzdA==", "evt_2", &ev).0, 401);
-    assert_eq!(siar::control::effective_plan(&a).unwrap().id, "pro");
+    assert_eq!(siar::control::effective_plan(&a).unwrap().id, "starter");
     assert_eq!(siar::control::effective_plan(&b).unwrap().id, "tiny");
     tool(&key_a, "schedule_post", json!({ "content": "second", "targets": [acc_a], "at": at })).expect("pro allows more posts");
     let revoked =
-        json!({ "type": "subscription.revoked", "data": { "id": "sub_1", "status": "canceled", "product_id": "prod_pro", "metadata": { "tenant_id": a } } })
+        json!({ "type": "subscription.revoked", "data": { "id": "sub_1", "status": "canceled", "product_id": "prod_starter", "metadata": { "tenant_id": a } } })
             .to_string();
     assert_eq!(polar_post(&polar_secret, "evt_3", &revoked).0, 200);
     assert_eq!(siar::control::effective_plan(&a).unwrap().id, "tiny");
 
+    // ---------- plan features: auto-replies and analytics are on Pro only ----------
+    let e = tool(&key_a, "post_performance", json!({ "post_id": post_a })).unwrap_err();
+    assert!(e.contains("Plan limit") && e.contains("Analytics") && e.contains("the Pro plan"), "{e}");
+    let e = tool(&key_a, "create_automation", json!({ "account_id": acc_a })).unwrap_err();
+    assert!(e.contains("Plan limit") && e.contains("Auto-replies"), "{e}");
+    if let Err(e) = tool(&key_a, "best_times", json!({ "account_id": acc_a })) {
+        assert!(!e.contains("Plan limit"), "best_times is on every plan: {e}");
+    }
+    siar::control::put_plan(&json!({ "id": "tiny", "name": "Tiny", "max_accounts": 1, "max_posts_month": 1, "max_storage_mb": 1, "max_upload_mb": 1, "features": ["analytics", "automations"] }))
+        .unwrap();
+    if let Err(e) = tool(&key_a, "post_performance", json!({ "post_id": post_a })) {
+        assert!(!e.contains("Plan limit"), "the plan has analytics now: {e}");
+    }
+    siar::control::put_plan(&json!({ "id": "tiny", "name": "Tiny", "max_accounts": 1, "max_posts_month": 1, "max_storage_mb": 1, "max_upload_mb": 1 }))
+        .unwrap();
+
     // ---------- DOKU notifications: signature, amount, idempotency, prepaid period ----------
     // QRIS on Rp16.000: Rp1.000 + 11% VAT = Rp1.110 admin fee.
-    let q = siar::billing::doku_quote(&pro, 1, "QRIS").unwrap();
+    let q = siar::billing::doku_quote(&starter, 1, "QRIS").unwrap();
     assert_eq!((q.net, q.fee, q.total, q.label.as_str()), (16000, 1110, 17110, "QRIS"));
-    let va = siar::billing::doku_quote(&pro, 1, "VIRTUAL_ACCOUNT_BCA").unwrap();
+    let va = siar::billing::doku_quote(&starter, 1, "VIRTUAL_ACCOUNT_BCA").unwrap();
     assert_eq!(va.fee, 4995, "Rp4.500 + VAT");
-    let ovo = siar::billing::doku_quote(&pro, 1, "EMONEY_OVO").unwrap();
+    let ovo = siar::billing::doku_quote(&starter, 1, "EMONEY_OVO").unwrap();
     assert!(ovo.total as f64 - ovo.total as f64 * 0.0318 * 1.11 >= 16000.0, "a percentage fee is grossed up");
-    assert!(siar::billing::doku_quote(&pro, 1, "NOPE").is_err());
+    assert!(siar::billing::doku_quote(&starter, 1, "NOPE").is_err());
     siar::control::with(|c| {
         c.execute(
-            "INSERT INTO invoices (invoice_number, tenant_id, plan_id, months, amount, currency, status, created_at, net_amount, fee, method) VALUES ('SIAR-INV-1', ?, 'pro', 1, ?, 'IDR', 'pending', ?, 16000, ?, 'QRIS')",
+            "INSERT INTO invoices (invoice_number, tenant_id, plan_id, months, amount, currency, status, created_at, net_amount, fee, method) VALUES ('SIAR-INV-1', ?, 'starter', 1, ?, 'IDR', 'pending', ?, 16000, ?, 'QRIS')",
             rusqlite::params![b, q.total, now(), q.fee],
         )?;
         Ok(())
@@ -314,7 +330,10 @@ fn hosted_mode() {
     assert_eq!(doku_post("req-1", &paid, "SK-TEST").0, 200);
     assert_eq!(doku_post("req-1", &paid, "SK-TEST").0, 200, "duplicate is acknowledged");
     let sub = siar::control::subscription(&b).unwrap().unwrap();
-    assert_eq!((sub.plan_id.as_str(), sub.provider.as_str(), sub.status.as_str()), ("pro", "doku", "active"));
+    assert_eq!(
+        (sub.plan_id.as_str(), sub.provider.as_str(), sub.status.as_str()),
+        ("starter", "doku", "active")
+    );
     let end = sub.current_period_end.unwrap();
     assert!(end > now() + 27 * 86_400_000 && end < now() + 32 * 86_400_000, "one month");
     assert_eq!(doku_post("req-2", &paid, "SK-TEST").0, 200);
@@ -323,7 +342,7 @@ fn hosted_mode() {
         Some(end),
         "a paid invoice extends only once"
     );
-    assert_eq!(siar::control::effective_plan(&b).unwrap().id, "pro");
+    assert_eq!(siar::control::effective_plan(&b).unwrap().id, "starter");
     let _ = key_b;
 
     // ---------- web pages and CSRF ----------
@@ -341,9 +360,35 @@ fn hosted_mode() {
     );
     assert!(pricing.contains("$1.61") && pricing.contains("$0.61 card processing fee"));
     assert!(
-        pricing.contains("Monthly") && pricing.contains("Yearly") && pricing.contains("Rp15.000"),
+        pricing.contains("Basic") && pricing.contains("Pro") && pricing.contains("Rp15.000") && pricing.contains("Rp60.000") && pricing.contains("Rp180.000"),
         "seeded plans"
     );
+    assert!(pricing.contains("$3.75") && pricing.contains("$13.37"), "Basic: $3 / $12 net");
+    assert!(pricing.contains("$10.17") && pricing.contains("$39.04"), "Pro: $9 / $36 net");
+    assert!(pricing.contains("$83.00 less than 12 monthly payments"));
+    assert!(pricing.contains("Compare plans") && pricing.contains("plan paid featured"));
+    let pro = siar::control::plan("pro").unwrap().unwrap();
+    assert!(pro.has_feature("automations") && pro.has_feature("analytics") && pro.max_accounts == 30);
+    let basic = siar::control::plan("basic").unwrap().unwrap();
+    assert!(!basic.has_feature("analytics") && basic.max_accounts == 10);
+    assert!(siar::control::plan("monthly").unwrap().is_none(), "the old single plan became Basic");
+    let q = siar::billing::doku_quote(&pro, 12, "QRIS").unwrap();
+    assert_eq!(q.net, 180000);
+    let (_, landing) = http(siar::net::get(format!("{}/", base())));
+    assert!(landing.contains("class=\"session play\""), "the transcript while there is no demo video");
+    std::fs::create_dir_all(dir.join("public")).unwrap();
+    std::fs::write(dir.join("public/demo.mp4"), b"0123456789").unwrap();
+    let (_, landing) = http(siar::net::get(format!("{}/", base())));
+    assert!(landing.contains("<video autoplay muted loop playsinline") && landing.contains("/static/demo.mp4"));
+    let res = siar::net::get(format!("{}/static/demo.mp4", base()))
+        .header("range", "bytes=2-5")
+        .send()
+        .unwrap();
+    assert_eq!(res.status, 206);
+    assert_eq!(res.text().unwrap(), "2345");
+    assert_eq!(http(siar::net::get(format!("{}/static/demo.mp4", base()))).1, "0123456789");
+    assert_eq!(http(siar::net::get(format!("{}/static/control.sqlite", base()))).0, 404);
+    assert_eq!(http(siar::net::get(format!("{}/static/..%2fcontrol.sqlite", base()))).0, 404);
     let (s, _) = http(siar::net::get(format!("{}/dashboard", base())).no_redirects());
     assert_eq!(s, 303, "dashboard needs a session");
 
@@ -438,7 +483,7 @@ fn hosted_mode() {
     let set_end = |end: i64| {
         siar::control::with(|c| {
             c.execute(
-                "INSERT INTO subscriptions (tenant_id, plan_id, provider, status, external_id, current_period_end, cancel_at_period_end, updated_at) VALUES (?, 'pro', 'doku', 'active', 'INV', ?, 1, ?)
+                "INSERT INTO subscriptions (tenant_id, plan_id, provider, status, external_id, current_period_end, cancel_at_period_end, updated_at) VALUES (?, 'starter', 'doku', 'active', 'INV', ?, 1, ?)
                  ON CONFLICT (tenant_id) DO UPDATE SET provider = 'doku', status = 'active', current_period_end = excluded.current_period_end",
                 rusqlite::params![mine, end, now()],
             )?;

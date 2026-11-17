@@ -49,7 +49,8 @@ fn admin(args: &[String]) -> siar::util::Result<()> {
                         "id": p.id, "name": p.name, "description": p.description, "price_usd_cents": p.price_usd_cents,
                         "polar_product_id": p.polar_product_id, "max_accounts": p.max_accounts, "max_posts_month": p.max_posts_month,
                         "max_storage_mb": p.max_storage_mb, "max_upload_mb": p.max_upload_mb, "api_per_minute": p.api_per_minute,
-                        "public": p.public as i64, "sort": p.sort, "interval": p.interval,
+                        "public": p.public as i64, "sort": p.sort, "interval": p.interval, "tier": p.tier,
+                        "features": p.features.split(',').filter(|f| !f.is_empty()).collect::<Vec<_>>(),
                         "polar_price_cents": siar::billing::polar_price(&p).total,
                         "prices": prices.iter().map(|(m, a, c)| serde_json::json!({ "provider": "doku", "months": m, "amount": a, "currency": c })).collect::<Vec<_>>(),
                     })
