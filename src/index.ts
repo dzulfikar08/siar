@@ -15,7 +15,7 @@ switch (cmd) {
   case "serve":
     // Long-running: HTTP MCP endpoint, OAuth callbacks, local media, scheduler.
     startHttp();
-    startScheduler();
+    if (process.env.SIAR_SCHEDULER !== "off") startScheduler();
     break;
   case "keygen":
     console.log(`SIAR_VAULT_KEY=${generateKey()}`);
