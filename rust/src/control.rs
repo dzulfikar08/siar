@@ -9,7 +9,8 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::util::{bail, hex, now, random_bytes, Error, Obj, Result};
 
-const MIGRATIONS: [&str; 1] = ["CREATE TABLE users (
+const MIGRATIONS: [&str; 2] = [
+    "CREATE TABLE users (
      id TEXT PRIMARY KEY,
      email TEXT,
      name TEXT,
@@ -137,7 +138,40 @@ const MIGRATIONS: [&str; 1] = ["CREATE TABLE users (
      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
      created_at INTEGER NOT NULL
    );
-   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);"];
+   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    // 2: customers pay the payment fees (net prices, fee settings, DOKU fee table), renewal
+    //    e-mails, Polar cancellations to retry.
+    "ALTER TABLE plans ADD COLUMN interval TEXT NOT NULL DEFAULT 'month';
+   ALTER TABLE invoices ADD COLUMN net_amount INTEGER;
+   ALTER TABLE invoices ADD COLUMN fee INTEGER;
+   ALTER TABLE invoices ADD COLUMN method TEXT;
+   CREATE TABLE doku_fees (
+     method TEXT NOT NULL,
+     label TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     upto INTEGER NOT NULL DEFAULT 0,
+     percent REAL NOT NULL DEFAULT 0,
+     flat INTEGER NOT NULL DEFAULT 0,
+     enabled INTEGER NOT NULL DEFAULT 1,
+     sort INTEGER NOT NULL DEFAULT 0,
+     PRIMARY KEY (method, upto)
+   );
+   CREATE TABLE mail_log (
+     tenant_id TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     period_end INTEGER NOT NULL,
+     sent_at INTEGER NOT NULL,
+     PRIMARY KEY (tenant_id, kind, period_end)
+   );
+   CREATE TABLE polar_cancellations (
+     subscription_id TEXT PRIMARY KEY,
+     tenant_id TEXT NOT NULL,
+     attempts INTEGER NOT NULL DEFAULT 0,
+     next_at INTEGER NOT NULL,
+     last_error TEXT,
+     created_at INTEGER NOT NULL
+   );",
+];
 
 static CONTROL: OnceLock<Mutex<Connection>> = OnceLock::new();
 
@@ -167,6 +201,56 @@ fn seed_defaults(c: &Connection) -> Result<()> {
         )?;
     }
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('default_plan', 'free')", [])?;
+    let seeded: Option<String> = c.query_row("SELECT value FROM settings WHERE key = 'seed_v2'", [], |r| r.get(0)).optional()?;
+    if seeded.is_none() {
+        seed_v2(c)?;
+        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('seed_v2', '1')", [])?;
+    }
+    Ok(())
+}
+
+/// Paid plans with NET prices (what we receive), the Polar fee settings, and DOKU's published
+/// fees per method (see rust/HOSTED.md for sources and what is unverified). All editable later.
+fn seed_v2(c: &Connection) -> Result<()> {
+    c.execute_batch(
+        "INSERT OR IGNORE INTO plans (id, name, description, price_usd_cents, interval, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, sort)
+           VALUES ('monthly', 'Monthly', 'Everything, billed monthly', 300, 'month', 10, 300, 2048, 200, 120, 1, 1);
+         INSERT OR IGNORE INTO plans (id, name, description, price_usd_cents, interval, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, sort)
+           VALUES ('yearly', 'Yearly', 'Everything, billed once a year', 1200, 'year', 10, 300, 2048, 200, 120, 1, 2);
+         INSERT OR IGNORE INTO plan_prices (plan_id, provider, months, amount, currency) VALUES ('monthly', 'doku', 1, 15000, 'IDR');
+         INSERT OR IGNORE INTO plan_prices (plan_id, provider, months, amount, currency) VALUES ('monthly', 'doku', 3, 45000, 'IDR');
+         INSERT OR IGNORE INTO plan_prices (plan_id, provider, months, amount, currency) VALUES ('monthly', 'doku', 12, 180000, 'IDR');
+         INSERT OR IGNORE INTO settings (key, value) VALUES ('polar_fee_percent', '5.0');
+         INSERT OR IGNORE INTO settings (key, value) VALUES ('polar_fee_fixed_cents', '50');
+         INSERT OR IGNORE INTO settings (key, value) VALUES ('polar_fee_extra_percent', '1.5');
+         INSERT OR IGNORE INTO settings (key, value) VALUES ('doku_fee_vat_percent', '11');",
+    )?;
+    // (method code, label, kind, upto net IDR (0 = any), percent, flat IDR, sort)
+    let fees: [(&str, &str, &str, i64, f64, i64, i64); 17] = [
+        ("QRIS", "QRIS", "qris", 100_000, 0.0, 1_000, 1),
+        ("QRIS", "QRIS", "qris", 0, 0.7, 0, 1),
+        ("VIRTUAL_ACCOUNT_BCA", "Virtual Account BCA", "va", 0, 0.0, 4_500, 10),
+        ("VIRTUAL_ACCOUNT_BANK_MANDIRI", "Virtual Account Mandiri", "va", 0, 0.0, 4_000, 11),
+        ("VIRTUAL_ACCOUNT_BNI", "Virtual Account BNI", "va", 0, 0.0, 4_000, 12),
+        ("VIRTUAL_ACCOUNT_BRI", "Virtual Account BRI", "va", 0, 0.0, 4_000, 13),
+        ("VIRTUAL_ACCOUNT_BANK_PERMATA", "Virtual Account Permata", "va", 0, 0.0, 4_000, 14),
+        ("VIRTUAL_ACCOUNT_BANK_SYARIAH_MANDIRI", "Virtual Account BSI", "va", 0, 0.0, 4_000, 15),
+        ("VIRTUAL_ACCOUNT_BANK_CIMB", "Virtual Account CIMB Niaga", "va", 0, 0.0, 4_000, 16),
+        ("VIRTUAL_ACCOUNT_BANK_DANAMON", "Virtual Account Danamon", "va", 0, 0.0, 4_000, 17),
+        ("VIRTUAL_ACCOUNT_BTN", "Virtual Account BTN", "va", 0, 0.0, 4_000, 18),
+        ("VIRTUAL_ACCOUNT_DOKU", "Virtual Account DOKU", "va", 0, 0.0, 4_000, 19),
+        ("EMONEY_DANA", "DANA", "ewallet", 0, 1.5, 0, 20),
+        ("EMONEY_DOKU", "DOKU e-Wallet", "ewallet", 0, 1.5, 0, 21),
+        ("EMONEY_OVO", "OVO", "ewallet", 0, 3.18, 0, 22),
+        ("EMONEY_SHOPEEPAY", "ShopeePay", "ewallet", 0, 4.0, 0, 23),
+        ("EMONEY_LINKAJA", "LinkAja", "ewallet", 0, 3.5, 0, 24),
+    ];
+    for (m, label, kind, upto, pct, flat, sort) in fees {
+        c.execute(
+            "INSERT OR IGNORE INTO doku_fees (method, label, kind, upto, percent, flat, sort) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![m, label, kind, upto, pct, flat, sort],
+        )?;
+    }
     Ok(())
 }
 
@@ -342,10 +426,12 @@ pub struct Plan {
     pub max_upload_mb: i64,
     pub api_per_minute: i64,
     pub public: bool,
+    /// Billing interval of the USD (Polar) price: "month" or "year".
+    pub interval: String,
 }
 
 const PLAN_COLS: &str =
-    "id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public";
+    "id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, interval";
 
 fn plan_row(r: &rusqlite::Row) -> rusqlite::Result<Plan> {
     Ok(Plan {
@@ -360,6 +446,7 @@ fn plan_row(r: &rusqlite::Row) -> rusqlite::Result<Plan> {
         max_upload_mb: r.get(8)?,
         api_per_minute: r.get(9)?,
         public: r.get::<_, i64>(10)? != 0,
+        interval: r.get(11)?,
     })
 }
 
@@ -383,15 +470,20 @@ pub fn plan_prices(plan_id: &str, provider: &str) -> Result<Vec<(i64, i64, Strin
     })
 }
 
-/// Insert or replace a plan from JSON (operator CLI): {id, name, max_accounts, ..., prices: [{provider, months, amount, currency}]}.
+/// Insert or replace a plan from JSON (operator CLI): {id, name, price_usd_cents (NET), interval
+/// ("month" | "year"), max_accounts, ..., prices: [{provider, months, amount (NET IDR), currency}]}.
 pub fn put_plan(v: &Value) -> Result<()> {
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(|x| x.to_string());
     let i = |k: &str, d: i64| v.get(k).and_then(|x| x.as_i64()).unwrap_or(d);
     let Some(id) = s("id") else { bail!("plan needs an id") };
     with(|c| {
         c.execute(
-            "INSERT OR REPLACE INTO plans (id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, sort)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO plans (id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, sort, interval)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET name = excluded.name, description = excluded.description, price_usd_cents = excluded.price_usd_cents,
+               polar_product_id = excluded.polar_product_id, max_accounts = excluded.max_accounts, max_posts_month = excluded.max_posts_month,
+               max_storage_mb = excluded.max_storage_mb, max_upload_mb = excluded.max_upload_mb, api_per_minute = excluded.api_per_minute,
+               public = excluded.public, sort = excluded.sort, interval = excluded.interval",
             params![
                 id,
                 s("name").unwrap_or_else(|| id.clone()),
@@ -404,7 +496,8 @@ pub fn put_plan(v: &Value) -> Result<()> {
                 i("max_upload_mb", 25),
                 i("api_per_minute", 60),
                 i("public", 1),
-                i("sort", 0)
+                i("sort", 0),
+                s("interval").filter(|x| x == "year").unwrap_or_else(|| "month".into())
             ],
         )?;
         if let Some(prices) = v.get("prices").and_then(|p| p.as_array()) {

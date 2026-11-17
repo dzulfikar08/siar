@@ -84,8 +84,41 @@ fn doku_post(request_id: &str, body: &str, secret: &str) -> (u16, String) {
     )
 }
 
+/// Fake Polar API (DELETE /v1/subscriptions/<id>, failing the first time) and Cloudflare Email
+/// endpoint; records (method, path, body).
+fn fake_apis() -> (u16, std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>) {
+    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let port = server.server_addr().to_ip().unwrap().port();
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let rec = calls.clone();
+    std::thread::spawn(move || {
+        for mut req in server.incoming_requests() {
+            let mut raw = vec![];
+            let _ = req.as_reader().read_to_end(&mut raw);
+            let path = req.url().to_string();
+            let method = req.method().to_string();
+            let body: Value = serde_json::from_slice(&raw).unwrap_or(Value::Null);
+            let n = {
+                let mut c = rec.lock().unwrap();
+                c.push((method.clone(), path.clone(), body));
+                c.iter().filter(|x| x.1 == path).count()
+            };
+            let (status, out) = if path.starts_with("/v1/subscriptions/") && n == 1 {
+                (500, json!({ "error": "temporarily unavailable" }))
+            } else if path.starts_with("/v1/subscriptions/") {
+                (200, json!({ "id": path.rsplit('/').next(), "status": "canceled" }))
+            } else {
+                (200, json!({ "success": true, "errors": [], "result": { "delivered": ["x"] } }))
+            };
+            let _ = req.respond(tiny_http::Response::from_string(out.to_string()).with_status_code(status));
+        }
+    });
+    (port, calls)
+}
+
 #[test]
 fn hosted_mode() {
+    let (fake_port, fake_calls) = fake_apis();
     let dir = std::env::temp_dir().join(format!("siar-hosted-{}", siar::util::new_id("t")));
     std::fs::create_dir_all(&dir).unwrap();
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
@@ -103,6 +136,12 @@ fn hosted_mode() {
         ("POLAR_WEBHOOK_SECRET", polar_secret.clone()),
         ("DOKU_CLIENT_ID", "MCH-TEST".into()),
         ("DOKU_SECRET_KEY", "SK-TEST".into()),
+        ("POLAR_ACCESS_TOKEN", "polar_oat_test".into()),
+        ("SIAR_POLAR_API_BASE", format!("http://127.0.0.1:{fake_port}")),
+        ("SIAR_MAIL_FROM", "siar <billing@diatur.com>".into()),
+        ("SIAR_MAIL_CF_ACCOUNT_ID", "acct123".into()),
+        ("SIAR_MAIL_CF_API_TOKEN", "cf-token".into()),
+        ("SIAR_MAIL_API_BASE", format!("http://127.0.0.1:{fake_port}/client/v4")),
     ] {
         std::env::set_var(k, v);
     }
@@ -227,8 +266,18 @@ fn hosted_mode() {
     let due: Option<i64> = siar::control::with(|c| Ok(c.query_row("SELECT next_post_at FROM due WHERE tenant_id = ?", [&a], |r| r.get(0))?)).unwrap();
     assert!(due.is_some());
 
-    // ---------- Polar webhooks: signature, idempotency, plan changes ----------
-    let ev = json!({ "type": "subscription.active", "data": { "id": "sub_1", "status": "active", "product_id": "prod_pro", "current_period_end": siar::util::iso(now() + 30 * 86_400_000), "metadata": { "tenant_id": a }, "customer": { "external_id": a } } }).to_string();
+    // ---------- Polar webhooks: signature, idempotency, amount with fees, plan changes ----------
+    let pro = siar::control::plan("pro").unwrap().unwrap();
+    let gross = siar::billing::polar_price(&pro).total;
+    assert_eq!(gross, 161, "$1.00 net at 5% + 1.5% + 50 cents");
+    let short = json!({ "type": "subscription.active", "data": { "id": "sub_0", "status": "active", "amount": 100, "product_id": "prod_pro", "current_period_end": siar::util::iso(now() + 30 * 86_400_000), "metadata": { "tenant_id": a } } }).to_string();
+    assert_eq!(
+        polar_post(&polar_secret, "evt_0", &short),
+        (200, "ignored\n".to_string()),
+        "the net price alone does not activate"
+    );
+    assert_eq!(siar::control::effective_plan(&a).unwrap().id, "tiny");
+    let ev = json!({ "type": "subscription.active", "data": { "id": "sub_1", "status": "active", "amount": gross, "product_id": "prod_pro", "current_period_end": siar::util::iso(now() + 30 * 86_400_000), "metadata": { "tenant_id": a }, "customer": { "external_id": a } } }).to_string();
     assert_eq!(polar_post(&polar_secret, "evt_1", &ev), (200, "applied\n".to_string()));
     assert_eq!(polar_post(&polar_secret, "evt_1", &ev), (200, "duplicate\n".to_string()));
     assert_eq!(polar_post("whsec_d3JvbmcgZW5vdWdoIGtleSBmb3IgdGVzdA==", "evt_2", &ev).0, 401);
@@ -242,14 +291,25 @@ fn hosted_mode() {
     assert_eq!(siar::control::effective_plan(&a).unwrap().id, "tiny");
 
     // ---------- DOKU notifications: signature, amount, idempotency, prepaid period ----------
+    // QRIS on Rp16.000: Rp1.000 + 11% VAT = Rp1.110 admin fee.
+    let q = siar::billing::doku_quote(&pro, 1, "QRIS").unwrap();
+    assert_eq!((q.net, q.fee, q.total, q.label.as_str()), (16000, 1110, 17110, "QRIS"));
+    let va = siar::billing::doku_quote(&pro, 1, "VIRTUAL_ACCOUNT_BCA").unwrap();
+    assert_eq!(va.fee, 4995, "Rp4.500 + VAT");
+    let ovo = siar::billing::doku_quote(&pro, 1, "EMONEY_OVO").unwrap();
+    assert!(ovo.total as f64 - ovo.total as f64 * 0.0318 * 1.11 >= 16000.0, "a percentage fee is grossed up");
+    assert!(siar::billing::doku_quote(&pro, 1, "NOPE").is_err());
     siar::control::with(|c| {
-        c.execute("INSERT INTO invoices (invoice_number, tenant_id, plan_id, months, amount, currency, status, created_at) VALUES ('SIAR-INV-1', ?, 'pro', 1, 16000, 'IDR', 'pending', ?)", rusqlite::params![b, now()])?;
+        c.execute(
+            "INSERT INTO invoices (invoice_number, tenant_id, plan_id, months, amount, currency, status, created_at, net_amount, fee, method) VALUES ('SIAR-INV-1', ?, 'pro', 1, ?, 'IDR', 'pending', ?, 16000, ?, 'QRIS')",
+            rusqlite::params![b, q.total, now(), q.fee],
+        )?;
         Ok(())
     })
     .unwrap();
-    let paid = json!({ "order": { "invoice_number": "SIAR-INV-1", "amount": 16000 }, "transaction": { "status": "SUCCESS" } }).to_string();
+    let paid = json!({ "order": { "invoice_number": "SIAR-INV-1", "amount": q.total }, "transaction": { "status": "SUCCESS" } }).to_string();
     assert_eq!(doku_post("req-1", &paid, "wrong-secret").0, 401);
-    let wrong_amount = json!({ "order": { "invoice_number": "SIAR-INV-1", "amount": 1 }, "transaction": { "status": "SUCCESS" } }).to_string();
+    let wrong_amount = json!({ "order": { "invoice_number": "SIAR-INV-1", "amount": 16000 }, "transaction": { "status": "SUCCESS" } }).to_string();
     assert_eq!(doku_post("req-0", &wrong_amount, "SK-TEST").0, 400);
     assert_eq!(doku_post("req-1", &paid, "SK-TEST").0, 200);
     assert_eq!(doku_post("req-1", &paid, "SK-TEST").0, 200, "duplicate is acknowledged");
@@ -275,7 +335,15 @@ fn hosted_mode() {
     let (_, privacy) = http(siar::net::get(format!("{}/privacy", base())));
     assert!(privacy.contains("Limited Use") && privacy.contains("YouTube API Services") && privacy.contains("within 30 days"));
     let (_, pricing) = http(siar::net::get(format!("{}/pricing", base())));
-    assert!(pricing.contains("Pro") && pricing.contains("IDR 16.000"));
+    assert!(
+        pricing.contains("Pro") && pricing.contains("Rp16.000") && pricing.contains("Biaya admin") && pricing.contains("Rp17.110"),
+        "fees shown"
+    );
+    assert!(pricing.contains("$1.61") && pricing.contains("$0.61 card processing fee"));
+    assert!(
+        pricing.contains("Monthly") && pricing.contains("Yearly") && pricing.contains("Rp15.000"),
+        "seeded plans"
+    );
     let (s, _) = http(siar::net::get(format!("{}/dashboard", base())).no_redirects());
     assert_eq!(s, 303, "dashboard needs a session");
 
@@ -284,6 +352,20 @@ fn hosted_mode() {
         siar::web::user_for("google", "g-42", Some("A@example.com"), "A").unwrap(),
         user,
         "same verified email, same user"
+    );
+    // Unverified emails never link: the provider helpers drop them, and a sign-in without a
+    // verified email is its own account.
+    let gh_unverified = siar::web::github_verified_email(&json!([{ "email": "a@example.com", "primary": true, "verified": false }]));
+    assert_eq!(gh_unverified, None);
+    assert_ne!(siar::web::user_for("github", "43", gh_unverified.as_deref(), "Mallory").unwrap(), user);
+    let g_unverified = siar::web::google_verified_email(&json!({ "sub": "g-43", "email": "a@example.com", "email_verified": false }));
+    assert_eq!(g_unverified, None);
+    assert_ne!(siar::web::user_for("google", "g-43", g_unverified.as_deref(), "Mallory").unwrap(), user);
+    let g_verified = siar::web::google_verified_email(&json!({ "sub": "g-44", "email": "A@Example.com", "email_verified": true }));
+    assert_eq!(
+        siar::web::user_for("google", "g-44", g_verified.as_deref(), "A").unwrap(),
+        user,
+        "verified, case-insensitive"
     );
     let raw = "ab".repeat(32);
     siar::control::with(|c| {
@@ -343,6 +425,57 @@ fn hosted_mode() {
         "A has no app and no shared app"
     );
 
+    // Prepaid renewal reminders by e-mail: 7 days before, 1 day before, once per period.
+    let mails = |calls: &std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>| {
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.1 == "/client/v4/accounts/acct123/email/sending/send")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let set_end = |end: i64| {
+        siar::control::with(|c| {
+            c.execute(
+                "INSERT INTO subscriptions (tenant_id, plan_id, provider, status, external_id, current_period_end, cancel_at_period_end, updated_at) VALUES (?, 'pro', 'doku', 'active', 'INV', ?, 1, ?)
+                 ON CONFLICT (tenant_id) DO UPDATE SET provider = 'doku', status = 'active', current_period_end = excluded.current_period_end",
+                rusqlite::params![mine, end, now()],
+            )?;
+            Ok(())
+        })
+        .unwrap()
+    };
+    set_end(now() + 20 * 86_400_000);
+    siar::mailer::send_renewal_reminders().unwrap();
+    assert!(mails(&fake_calls).is_empty(), "nothing due yet");
+    let end = now() + 6 * 86_400_000;
+    set_end(end);
+    assert_eq!(siar::mailer::send_renewal_reminders().unwrap(), 1);
+    assert_eq!(siar::mailer::send_renewal_reminders().unwrap(), 0, "once per period");
+    let m = mails(&fake_calls);
+    assert_eq!(m.len(), 1);
+    assert_eq!(m[0].2["to"], "a@example.com");
+    assert_eq!(m[0].2["from"], json!({ "name": "siar", "address": "billing@diatur.com" }));
+    assert!(m[0].2["subject"].as_str().unwrap().contains("7 days"));
+    // A day before the end: the 1-day reminder.
+    let end1 = now() + 12 * 3_600_000;
+    set_end(end1);
+    assert_eq!(siar::mailer::send_renewal_reminders().unwrap(), 1);
+    assert!(mails(&fake_calls)[1].2["subject"].as_str().unwrap().contains("tomorrow"));
+
+    // A card subscription is revoked when the account is deleted; a failed call is queued.
+    siar::control::with(|c| {
+        c.execute(
+            "UPDATE subscriptions SET provider = 'polar', status = 'active', external_id = 'sub_del' WHERE tenant_id = ?",
+            [&mine],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let (_, dash) = http(siar::net::get(format!("{}/dashboard", base())).header("cookie", cookie.clone()));
+    assert!(dash.contains("cancelled immediately, with no refund"));
+
     // Deleting the account wipes the workspace.
     let (s, _) = http(
         siar::net::post(format!("{}/dashboard/delete", base()))
@@ -359,6 +492,25 @@ fn hosted_mode() {
             .json(json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })),
     );
     assert_eq!(s, 401, "keys die with the workspace");
+    let revokes = |calls: &std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>| {
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.0 == "DELETE" && c.1 == "/v1/subscriptions/sub_del")
+            .count()
+    };
+    assert_eq!(revokes(&fake_calls), 1, "revoked at deletion");
+    let queued: i64 =
+        siar::control::with(|c| Ok(c.query_row("SELECT COUNT(*) FROM polar_cancellations WHERE subscription_id = 'sub_del'", [], |r| r.get(0))?)).unwrap();
+    assert_eq!(queued, 1, "the first call failed (500), so it is queued");
+    siar::control::with(|c| Ok(c.execute("UPDATE polar_cancellations SET next_at = 0", [])?)).unwrap();
+    siar::billing::retry_polar_revocations().unwrap();
+    assert_eq!(revokes(&fake_calls), 2);
+    let queued: i64 = siar::control::with(|c| Ok(c.query_row("SELECT COUNT(*) FROM polar_cancellations", [], |r| r.get(0))?)).unwrap();
+    assert_eq!(queued, 0, "retried and done");
+    let (_, terms) = http(siar::net::get(format!("{}/terms", base())));
+    assert!(terms.contains("cancels a card subscription (Polar) immediately"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

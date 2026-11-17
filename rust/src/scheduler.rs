@@ -151,10 +151,8 @@ fn start_hosted() {
         crate::tenant::close_idle();
         Ok(())
     });
-    every(24 * 3_600_000, 120_000, "renewals", || {
-        for (tenant, plan, end) in crate::billing::renewals_due(7)? {
-            log(&format!("renewal reminder: {tenant} ({plan}) prepaid period ends {}", iso(end)));
-        }
-        Ok(())
-    });
+    // Prepaid (DOKU) renewal reminders by e-mail: 7 days, 1 day before and on expiry.
+    every(3_600_000, 120_000, "renewals", || crate::mailer::send_renewal_reminders().map(|_| ()));
+    // Polar subscriptions of deleted accounts whose revocation failed.
+    every(5 * 60_000, 90_000, "polar-revoke", crate::billing::retry_polar_revocations);
 }

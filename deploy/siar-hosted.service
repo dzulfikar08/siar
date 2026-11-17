@@ -9,6 +9,9 @@ Wants=network-online.target
 User=siar-hosted
 Group=siar-hosted
 WorkingDirectory=/opt/siar-hosted
+# Defaults; the env file may override these (EnvironmentFile= wins over Environment=).
+Environment=SIAR_PORT=8789
+Environment=SIAR_HOST=127.0.0.1
 EnvironmentFile=/opt/siar-hosted/.env
 # Set on the command line: EnvironmentFile= would override Environment= lines.
 ExecStart=/usr/bin/env SIAR_MODE=hosted SIAR_DATA_DIR=/opt/siar-hosted/data /opt/siar-hosted/bin/siar serve

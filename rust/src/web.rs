@@ -339,10 +339,7 @@ fn finish_login(p: &LoginProvider, code: &str, state: &str) -> Result<(String, O
             .header("accept", "application/vnd.github+json")
             .get_json()
             .unwrap_or(Value::Null);
-        let email = emails
-            .as_array()
-            .and_then(|a| a.iter().find(|e| e["primary"] == true && e["verified"] == true))
-            .and_then(|e| e.get("email").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        let email = github_verified_email(&emails);
         let name = user
             .get("name")
             .and_then(|v| v.as_str())
@@ -367,9 +364,7 @@ fn finish_login(p: &LoginProvider, code: &str, state: &str) -> Result<(String, O
             .ok_or_else(|| Error::Msg("Google sign-in failed".into()))?
             .to_string();
         let u = crate::net::get("https://openidconnect.googleapis.com/v1/userinfo").bearer(&token).get_json()?;
-        let email = (u["email_verified"] == true)
-            .then(|| u.get("email").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .flatten();
+        let email = google_verified_email(&u);
         Ok((
             u.get("sub").map(js_string).unwrap_or_default(),
             email,
@@ -378,7 +373,31 @@ fn finish_login(p: &LoginProvider, code: &str, state: &str) -> Result<(String, O
     }
 }
 
-/// The user for an identity: existing, linked by verified email, or new (with its workspace).
+/// GitHub: only the primary address, and only if GitHub marks it verified (/user/emails).
+pub fn github_verified_email(emails: &Value) -> Option<String> {
+    emails
+        .as_array()?
+        .iter()
+        .find(|e| e["primary"] == true && e["verified"] == true)
+        .and_then(|e| e.get("email").and_then(|v| v.as_str()))
+        .filter(|e| e.contains('@'))
+        .map(|e| e.to_string())
+}
+
+/// Google: the userinfo email, only with email_verified = true.
+pub fn google_verified_email(userinfo: &Value) -> Option<String> {
+    if userinfo["email_verified"] != true {
+        return None;
+    }
+    userinfo
+        .get("email")
+        .and_then(|v| v.as_str())
+        .filter(|e| e.contains('@'))
+        .map(|e| e.to_string())
+}
+
+/// The user for an identity: existing, linked to another sign-in by a verified email, or new
+/// (with its workspace). `email` must be None unless the provider verified it.
 pub fn user_for(provider: &str, subject: &str, email: Option<&str>, name: &str) -> Result<String> {
     if subject.is_empty() {
         return Err(Error::Msg("Sign-in returned no account id".into()));
@@ -478,6 +497,16 @@ pub fn route(mut req: Request) {
         (["dashboard"], true, _) => with_session(&req, |s| dashboard(&req, s, &query, None)),
         (["dashboard", ..], _, true) => dashboard_post(&mut req, &parts[1..]),
         (["dashboard", "connect", platform], true, _) => with_session(&req, |s| credential_form(&req, s, platform)),
+        (["dashboard", "billing", "polar", plan], true, _) => with_session(&req, |s| match control::plan(plan).ok().flatten() {
+            Some(p) => polar_confirm(s, &p),
+            None => not_found(&req),
+        }),
+        (["dashboard", "billing", "doku", plan, months], true, _) => {
+            with_session(&req, |s| match (control::plan(plan).ok().flatten(), months.parse::<i64>()) {
+                (Some(p), Ok(m)) => doku_choose(s, &p, m, None),
+                _ => not_found(&req),
+            })
+        }
         (["mcp"], _, _) => mcp(&mut req, &method),
         (["oauth", "t", tid, platform, "callback"], true, _) => oauth_callback(&req, Some(tid), platform, &query),
         (["oauth", platform, "callback"], true, _) => oauth_callback(&req, None, platform, &query),
@@ -995,16 +1024,19 @@ fn dashboard_body(s: &Session, query: &str, shown_key: Option<(String, String)>)
     for p in control::plans()?.into_iter().filter(|p| p.public && p.price_usd_cents > 0) {
         let mut buttons = String::new();
         if billing::polar_enabled() && p.polar_product_id.is_some() {
+            let price = billing::polar_price(&p);
             buttons.push_str(&format!(
-                "<form method=\"post\" action=\"/dashboard/billing/polar/{}\">{csrf}<button>Subscribe, ${:.2}/month</button></form>",
+                "<p><a class=\"button\" href=\"/dashboard/billing/polar/{}\">Pay by card: {}/{} (incl. {} fee)</a></p>",
                 esc(&p.id),
-                p.price_usd_cents as f64 / 100.0
+                usd(price.total),
+                esc(&p.interval),
+                usd(price.fee)
             ));
         }
         if billing::doku_enabled() {
             for (months, amount, currency) in control::plan_prices(&p.id, "doku")? {
                 buttons.push_str(&format!(
-                    "<form method=\"post\" action=\"/dashboard/billing/doku/{}/{months}\">{csrf}<button class=\"secondary\">Pay {} {} for {months} month{} (QRIS, VA, e-wallet)</button></form>",
+                    "<p><a class=\"button secondary\" href=\"/dashboard/billing/doku/{}/{months}\">Pay {} {} + admin fee for {months} month{} (QRIS, VA, e-wallet)</a></p>",
                     esc(&p.id),
                     esc(&currency),
                     fmt_amount(amount),
@@ -1030,7 +1062,7 @@ fn dashboard_body(s: &Session, query: &str, shown_key: Option<(String, String)>)
 
     // Delete
     b.push_str(&format!(
-        "<h2 id=\"delete\">Delete account</h2><p>Deletes your workspace: connected accounts and their tokens, posts, media, API keys and sign-in. This cannot be undone. Cancel a Polar subscription in the Polar customer portal first.</p>\
+        "<h2 id=\"delete\">Delete account</h2><p>Deletes your workspace: connected accounts and their tokens, posts, media, API keys and sign-in. This cannot be undone. <strong>A card subscription (Polar) is cancelled immediately, with no refund for the rest of the period.</strong> A prepaid rupiah period ends with the account and is not refunded.</p>\
 <form method=\"post\" action=\"/dashboard/delete\">{csrf}<label for=\"confirm\">Type DELETE to confirm</label><input id=\"confirm\" name=\"confirm\" autocomplete=\"off\"><p><button class=\"danger\">Delete my account</button></p></form>"
     ));
     Ok(b)
@@ -1046,6 +1078,108 @@ fn fmt_amount(n: i64) -> String {
         out.push(c);
     }
     out
+}
+
+fn usd(cents: i64) -> String {
+    format!("${}.{:02}", cents / 100, cents % 100)
+}
+
+fn idr(amount: i64) -> String {
+    format!("Rp{}", fmt_amount(amount))
+}
+
+/// Before Polar: the plan's net price, the card processing fee the customer pays, the total.
+fn polar_confirm(s: &Session, p: &control::Plan) -> Resp {
+    let price = billing::polar_price(p);
+    let f = billing::polar_fees();
+    page(
+        "Confirm payment",
+        &format!(
+            "<h1>Subscribe to {}</h1><table><tbody><tr><th>{} plan, per {}</th><td>{}</td></tr><tr><th>Card processing fee (Polar: {}% + {}{})</th><td>{}</td></tr><tr><th>Total per {}</th><td><strong>{}</strong></td></tr></tbody></table>\
+<p class=\"muted\">The fee is what Polar, our merchant of record, charges for the payment; we pass it on at cost. Polar may add sales tax or VAT for your country at checkout. Renews every {} until you cancel.</p>\
+<form method=\"post\" action=\"/dashboard/billing/polar/{}\">{}<button>Continue to Polar</button> <a href=\"/dashboard#billing\">Cancel</a></form>",
+            esc(&p.name),
+            esc(&p.name),
+            esc(&p.interval),
+            usd(price.net),
+            f.percent,
+            usd(f.fixed_cents),
+            if f.extra_percent > 0.0 { format!(", +{}% for cards outside the US", f.extra_percent) } else { String::new() },
+            usd(price.fee),
+            esc(&p.interval),
+            usd(price.total),
+            esc(&p.interval),
+            esc(&p.id),
+            csrf_field(s)
+        ),
+        true,
+    )
+}
+
+/// The customer picks the DOKU payment method here, seeing each method's admin fee.
+fn doku_choose(s: &Session, p: &control::Plan, months: i64, error: Option<&str>) -> Resp {
+    let mut rows = String::new();
+    for (i, m) in billing::doku_methods().unwrap_or_default().iter().enumerate() {
+        if let Ok(q) = billing::doku_quote(p, months, &m.method) {
+            rows.push_str(&format!(
+                "<tr><td><input type=\"radio\" name=\"method\" id=\"m{i}\" value=\"{}\"{}></td><td><label for=\"m{i}\">{}</label></td><td>{}</td><td>{}</td></tr>",
+                esc(&m.method),
+                if i == 0 { " required" } else { "" },
+                esc(&m.label),
+                idr(q.fee),
+                idr(q.total)
+            ));
+        }
+    }
+    let net = control::plan_prices(&p.id, "doku")
+        .unwrap_or_default()
+        .into_iter()
+        .find(|x| x.0 == months)
+        .map(|x| x.1)
+        .unwrap_or(0);
+    page(
+        "Choose a payment method",
+        &format!(
+            "<h1>{} for {} month{}</h1>{}<p>Price {}. Each payment method has its own admin fee (Biaya admin), charged by DOKU and passed on at cost:</p>\
+<form method=\"post\" action=\"/dashboard/billing/doku/{}/{months}\">{}<table><thead><tr><th></th><th>Method</th><th>Biaya admin</th><th>Total</th></tr></thead><tbody>{rows}</tbody></table>\
+<p><button>Continue</button> <a href=\"/dashboard#billing\">Cancel</a></p></form><p class=\"muted\">Prepaid: no automatic renewal. We e-mail you 7 days and 1 day before the period ends.</p>",
+            esc(&p.name),
+            months,
+            if months == 1 { "" } else { "s" },
+            error.map(|e| format!("<p class=\"note err\" role=\"alert\">{}</p>", esc(e))).unwrap_or_default(),
+            idr(net),
+            esc(&p.id),
+            csrf_field(s)
+        ),
+        true,
+    )
+}
+
+/// Last step before DOKU: the breakdown with the admin fee as its own line.
+fn doku_confirm(s: &Session, p: &control::Plan, months: i64, method: &str) -> Resp {
+    match billing::doku_quote(p, months, method) {
+        Ok(q) => page(
+            "Confirm payment",
+            &format!(
+                "<h1>Confirm payment</h1><table><tbody><tr><th>siar {} ({} month{})</th><td>{}</td></tr><tr><th>Biaya admin {}</th><td>{}</td></tr><tr><th>Total</th><td><strong>{}</strong></td></tr></tbody></table>\
+<form method=\"post\" action=\"/dashboard/billing/doku/{}/{months}\">{}<input type=\"hidden\" name=\"method\" value=\"{}\"><input type=\"hidden\" name=\"confirm\" value=\"1\"><p><button>Pay with {}</button> <a href=\"/dashboard/billing/doku/{}/{months}\">Choose another method</a></p></form>",
+                esc(&p.name),
+                months,
+                if months == 1 { "" } else { "s" },
+                idr(q.net),
+                esc(&q.label),
+                idr(q.fee),
+                idr(q.total),
+                esc(&p.id),
+                csrf_field(s),
+                esc(method),
+                esc(&q.label),
+                esc(&p.id)
+            ),
+            true,
+        ),
+        Err(e) => doku_choose(s, p, months, Some(&e.to_string())),
+    }
 }
 
 fn credential_form(req: &Request, s: &Session, platform: &str) -> Resp {
@@ -1164,10 +1298,19 @@ fn dashboard_post(req: &mut Request, parts: &[&str]) -> Resp {
             None => back(Err(Error::Msg("Unknown plan".into()))),
         },
         ["billing", "doku", plan, months] => match (control::plan(plan).ok().flatten(), months.parse::<i64>()) {
-            (Some(p), Ok(m)) => match billing::doku_checkout(&s.tenant, &p, m, s.email.as_deref()) {
-                Ok(url) => redirect(&url, None),
-                Err(e) => back(Err(e)),
-            },
+            (Some(p), Ok(m)) => {
+                let method = fstr(&f, "method");
+                if method.is_empty() {
+                    return doku_choose(&s, &p, m, Some("Choose a payment method"));
+                }
+                if fstr(&f, "confirm") != "1" {
+                    return doku_confirm(&s, &p, m, &method);
+                }
+                match billing::doku_checkout(&s.tenant, &p, m, &method, s.email.as_deref()) {
+                    Ok(url) => redirect(&url, None),
+                    Err(e) => back(Err(e)),
+                }
+            }
             _ => back(Err(Error::Msg("Unknown plan".into()))),
         },
         ["delete"] => {
@@ -1189,6 +1332,22 @@ fn dashboard_post(req: &mut Request, parts: &[&str]) -> Resp {
 /// Wipe a workspace: R2 objects of its media, its database and media directory, and its control
 /// rows (keys, subscription, usage, app credentials), then the user and their sessions.
 pub fn delete_account(user_id: &str, tenant_id: &str) -> Result<()> {
+    // A card subscription is revoked at once (no refund); on failure the deletion goes on and the
+    // revocation is retried by the scheduler.
+    if let Some(sub) = control::subscription(tenant_id)? {
+        if sub.provider == "polar" && sub.status != "revoked" {
+            let ext: Option<String> = control::with(|c| {
+                Ok(
+                    c.query_row("SELECT external_id FROM subscriptions WHERE tenant_id = ?", [tenant_id], |r| r.get(0))
+                        .optional()?
+                        .flatten(),
+                )
+            })?;
+            if let Some(id) = ext.filter(|i| !i.is_empty()) {
+                billing::polar_revoke_or_queue(&id, tenant_id);
+            }
+        }
+    }
     let _ = in_tenant(tenant_id, || {
         let ids: Vec<String> = crate::db::with(|c| crate::db::rows(c, "SELECT id FROM media", [], |r| r.get(0)))?;
         for id in ids {
@@ -1249,23 +1408,56 @@ fn docs(req: &Request) -> Resp {
 }
 
 fn pricing(req: &Request) -> Resp {
+    let fees = billing::polar_fees();
     let mut cards = String::new();
+    let mut fee_tables = String::new();
     for p in control::plans().unwrap_or_default().into_iter().filter(|p| p.public) {
-        let usd = if p.price_usd_cents == 0 {
+        let usd_line = if p.price_usd_cents == 0 {
             "Free".to_string()
         } else {
-            format!("${:.2} / month", p.price_usd_cents as f64 / 100.0)
+            let price = billing::polar_price(&p);
+            format!(
+                "{} / {} <span class=\"muted\">({} + {} card processing fee)</span>",
+                usd(price.total),
+                esc(&p.interval),
+                usd(price.net),
+                usd(price.fee)
+            )
         };
-        let idr: Vec<String> = control::plan_prices(&p.id, "doku")
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(m, a, c)| format!("{c} {} for {m} month{}", fmt_amount(a), if m == 1 { "" } else { "s" }))
+        let periods = control::plan_prices(&p.id, "doku").unwrap_or_default();
+        let idr_line: Vec<String> = periods
+            .iter()
+            .map(|(m, a, _)| format!("{} for {m} month{}", idr(*a), if *m == 1 { "" } else { "s" }))
             .collect();
+        if let Some((m, a, _)) = periods.first() {
+            let mut rows = String::new();
+            for method in billing::doku_methods().unwrap_or_default() {
+                if let Ok(q) = billing::doku_quote(&p, *m, &method.method) {
+                    rows.push_str(&format!(
+                        "<tr><td>{}</td><td>{}</td><td>{}</td></tr>",
+                        esc(&method.label),
+                        idr(q.fee),
+                        idr(q.total)
+                    ));
+                }
+            }
+            fee_tables.push_str(&format!(
+                "<h3>{} – {} month{} ({})</h3><table><thead><tr><th>Payment method</th><th>Biaya admin</th><th>Total</th></tr></thead><tbody>{rows}</tbody></table>",
+                esc(&p.name),
+                m,
+                if *m == 1 { "" } else { "s" },
+                idr(*a)
+            ));
+        }
         cards.push_str(&format!(
-            "<div class=\"card\"><h2>{}</h2><p class=\"muted\">{}</p><p><strong>{usd}</strong>{}</p><ul><li>{} connected accounts</li><li>{} scheduled or published posts per month</li><li>{} MB media storage, files up to {} MB</li><li>{} API requests per minute per key</li></ul></div>",
+            "<div class=\"card\"><h2>{}</h2><p class=\"muted\">{}</p><p><strong>{usd_line}</strong>{}</p><ul><li>{} connected accounts</li><li>{} scheduled or published posts per month</li><li>{} MB media storage, files up to {} MB</li><li>{} API requests per minute per key</li></ul></div>",
             esc(&p.name),
             esc(&p.description),
-            if idr.is_empty() { String::new() } else { format!("<br><span class=\"muted\">or prepaid in Indonesia: {}</span>", esc(&idr.join(", "))) },
+            if idr_line.is_empty() {
+                String::new()
+            } else {
+                format!("<br><span class=\"muted\">or prepaid in Indonesia: {} + admin fee</span>", esc(&idr_line.join(", ")))
+            },
             p.max_accounts,
             p.max_posts_month,
             p.max_storage_mb,
@@ -1273,9 +1465,20 @@ fn pricing(req: &Request) -> Resp {
             p.api_per_minute
         ));
     }
+    let doku = if fee_tables.is_empty() {
+        String::new()
+    } else {
+        format!("<h2>Paying in rupiah</h2><p>You choose the payment method before paying; its admin fee (Biaya admin, set by DOKU, VAT included) is added as a separate line:</p>{fee_tables}")
+    };
     page(
         "Pricing",
-        &format!("<h1>Pricing</h1><p class=\"lead\">Pay in USD by card through Polar, or in rupiah with QRIS, virtual accounts or e-wallets through DOKU.</p><div class=\"grid\">{cards}</div><p class=\"muted\">Prices include applicable taxes where the payment provider collects them. Cancel any time; a plan stays active until the end of the period you paid for.</p>"),
+        &format!(
+            "<h1>Pricing</h1><p class=\"lead\">Pay in USD by card through Polar, or in rupiah with QRIS, virtual accounts or e-wallets through DOKU. You pay the payment provider's fee; the plan price is what we receive.</p><div class=\"grid\">{cards}</div>\
+<p class=\"muted\">Card prices include Polar's fee ({}% + {}{}), passed on at cost. Polar may add sales tax or VAT for your country at checkout. Cancel any time; a plan stays active until the end of the period you paid for.</p>{doku}",
+            fees.percent,
+            usd(fees.fixed_cents),
+            if fees.extra_percent > 0.0 { format!(", +{}% for cards outside the US", fees.extra_percent) } else { String::new() }
+        ),
         signed_in(req),
     )
 }
@@ -1318,12 +1521,44 @@ fn terms(req: &Request) -> Resp {
 <h2>The service</h2><p>siar lets you schedule and publish content to social media accounts you connect, and read comments, messages and statistics for them, through AI agents (MCP) or the dashboard.</p>\
 <h2>Your accounts and content</h2><p>You may only connect accounts you are authorized to manage. You are responsible for the content you publish and for following each platform's terms, including the <a href=\"https://www.youtube.com/t/terms\">YouTube Terms of Service</a>, Meta's terms and community standards, LinkedIn's User Agreement and the rules of other platforms. You keep all rights to your content; you give us permission to process it only to provide the service.</p>\
 <h2>Acceptable use</h2><p>No spam, deceptive or illegal content, harassment, attempts to break or overload the service, or use of automations that violate platform rules. We may suspend accounts that do.</p>\
-<h2>Plans and payment</h2><p>Plans have limits shown on the <a href=\"/pricing\">pricing page</a>. USD subscriptions are sold by Polar as merchant of record and renew until cancelled; rupiah payments through DOKU buy a prepaid period and do not renew automatically. A plan starts when the payment provider confirms payment. Refunds follow the provider's policy and applicable law.</p>\
+<h2>Plans and payment</h2><p>Plans have limits shown on the <a href=\"/pricing\">pricing page</a>. USD subscriptions are sold by Polar as merchant of record and renew until cancelled; rupiah payments through DOKU buy a prepaid period and do not renew automatically. Prices shown include the payment provider's fee, which you pay: Polar's card processing fee, or DOKU's admin fee (Biaya admin) for the method you choose. A plan starts when the payment provider confirms payment. Refunds follow the provider's policy and applicable law.</p>\
 <h2>Availability</h2><p>We aim for a reliable service but platforms change their APIs and may reject or delay posts; the service is provided as is, without guarantees that every post is published at the exact time.</p>\
 <h2>Liability</h2><p>To the extent the law allows, our liability is limited to the amount you paid in the 3 months before the claim.</p>\
-<h2>Ending</h2><p>You can delete your account at any time in the dashboard. Data deletion is described in the <a href=\"/privacy\">privacy policy</a>.</p>\
+<h2>Ending</h2><p>You can delete your account at any time in the dashboard. Deleting it cancels a card subscription (Polar) immediately, without a refund for the rest of the period; a prepaid rupiah period ends with the account without a refund. Data deletion is described in the <a href=\"/privacy\">privacy policy</a>.</p>\
 <h2>Law</h2><p>These terms are governed by the laws of the Republic of Indonesia.</p>\
 <h2>Contact</h2><p><a href=\"mailto:{c}\">{c}</a></p>"
     );
     page("Terms of service", &body, signed_in(req))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_verified_emails_link() {
+        let gh = json!([
+            { "email": "old@example.com", "primary": false, "verified": true },
+            { "email": "me@example.com", "primary": true, "verified": true },
+        ]);
+        assert_eq!(github_verified_email(&gh).as_deref(), Some("me@example.com"));
+        let gh_unverified =
+            json!([{ "email": "me@example.com", "primary": true, "verified": false }, { "email": "x@example.com", "primary": false, "verified": true }]);
+        assert_eq!(github_verified_email(&gh_unverified), None, "a verified non-primary address is not used");
+        assert_eq!(github_verified_email(&Value::Null), None);
+        assert_eq!(
+            google_verified_email(&json!({ "sub": "1", "email": "me@example.com", "email_verified": true })).as_deref(),
+            Some("me@example.com")
+        );
+        assert_eq!(
+            google_verified_email(&json!({ "sub": "1", "email": "me@example.com", "email_verified": false })),
+            None
+        );
+        assert_eq!(google_verified_email(&json!({ "sub": "1", "email": "me@example.com" })), None);
+        assert_eq!(
+            google_verified_email(&json!({ "sub": "1", "email": "me@example.com", "email_verified": "true" })),
+            None,
+            "only a real boolean counts"
+        );
+    }
 }

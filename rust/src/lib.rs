@@ -10,6 +10,7 @@ pub mod db;
 pub mod engage;
 pub mod insights;
 pub mod limits;
+pub mod mailer;
 pub mod mcp;
 pub mod media;
 pub mod net;

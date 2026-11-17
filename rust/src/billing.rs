@@ -25,11 +25,14 @@ pub fn polar_enabled() -> bool {
     env("POLAR_ACCESS_TOKEN").is_some_and(|v| !v.is_empty())
 }
 
-fn polar_api() -> &'static str {
+fn polar_api() -> String {
+    if let Some(b) = env("SIAR_POLAR_API_BASE").filter(|b| !b.is_empty()) {
+        return b; // tests
+    }
     if env("POLAR_SERVER").as_deref() == Some("production") {
-        "https://api.polar.sh"
+        "https://api.polar.sh".into()
     } else {
-        "https://sandbox-api.polar.sh"
+        "https://sandbox-api.polar.sh".into()
     }
 }
 
@@ -142,6 +145,20 @@ fn apply_polar(kind: &str, d: &Value) -> Result<Hook> {
     }
     .or_else(|| s("/metadata/plan_id"));
     let Some(plan_id) = plan_id else { bail!("Unknown Polar product") };
+    // Customers pay the fees: the Polar price must be at least the grossed-up plan price.
+    if kind != "subscription.revoked" {
+        if let (Some(amount), Some(plan)) = (d.get("amount").and_then(|a| a.as_i64()), control::plan(&plan_id)?) {
+            let want = polar_price(&plan).total;
+            if amount < want {
+                eprintln!(
+                    "{} [billing] polar subscription {} for {tenant}: amount {amount} is below the plan's price with fees ({want}); not activated",
+                    iso(now()),
+                    s("/id").unwrap_or_default()
+                );
+                return Ok(Hook::Ignored);
+            }
+        }
+    }
     let status = match kind {
         "subscription.revoked" => "revoked".to_string(),
         _ => s("/status").unwrap_or_else(|| "active".into()),
@@ -207,21 +224,24 @@ pub fn doku_verify(secret: &str, component: &str, header: &str) -> bool {
     control::ct_eq(&norm(&want), &norm(header))
 }
 
-/// A DOKU Checkout for `months` of a plan in IDR; returns the payment page URL.
-pub fn doku_checkout(tenant_id: &str, plan: &Plan, months: i64, email: Option<&str>) -> Result<String> {
-    let Some((_, amount, currency)) = control::plan_prices(&plan.id, "doku")?.into_iter().find(|p| p.0 == months) else {
-        bail!("No IDR price for {} month(s) of the {} plan", months, plan.name);
-    };
+/// A DOKU Checkout for `months` of a plan in IDR, paid with one method the customer chose on our
+/// page. The order has two line items, the plan (net) and "Biaya admin <method>"; DOKU Checkout is
+/// restricted to that method. Returns the payment page URL.
+pub fn doku_checkout(tenant_id: &str, plan: &Plan, months: i64, method: &str, email: Option<&str>) -> Result<String> {
+    let q = doku_quote(plan, months, method)?;
     let invoice = format!("SIAR-{tenant_id}-{}", hex(&random_bytes(6)));
     let body = json!({
         "order": {
-            "amount": amount,
+            "amount": q.total,
             "invoice_number": invoice,
-            "currency": currency,
+            "currency": q.currency,
             "callback_url": format!("{}/dashboard?checkout=doku#billing", config().public_url),
-            "line_items": [{ "name": format!("siar {} ({} month{})", plan.name, months, if months == 1 { "" } else { "s" }), "price": amount, "quantity": 1 }],
+            "line_items": [
+                { "name": format!("siar {} ({} bulan)", plan.name, months), "price": q.net, "quantity": 1 },
+                { "name": format!("Biaya admin {}", q.label), "price": q.fee, "quantity": 1 },
+            ],
         },
-        "payment": { "payment_due_date": 60 },
+        "payment": { "payment_due_date": 60, "payment_method_types": [method] },
         "customer": { "id": tenant_id, "email": email.unwrap_or("") },
     })
     .to_string();
@@ -235,8 +255,9 @@ pub fn doku_checkout(tenant_id: &str, plan: &Plan, months: i64, email: Option<&s
     );
     control::with(|c| {
         c.execute(
-            "INSERT INTO invoices (invoice_number, tenant_id, plan_id, months, amount, currency, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
-            params![invoice, tenant_id, plan.id, months, amount, currency, now()],
+            "INSERT INTO invoices (invoice_number, tenant_id, plan_id, months, amount, currency, status, created_at, net_amount, fee, method)
+             VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+            params![invoice, tenant_id, plan.id, months, q.total, q.currency, now(), q.net, q.fee, method],
         )?;
         Ok(())
     })?;
@@ -252,6 +273,187 @@ pub fn doku_checkout(tenant_id: &str, plan: &Plan, months: i64, email: Option<&s
         Some(u) => Ok(u.to_string()),
         None => bail!("DOKU returned no payment URL"),
     }
+}
+
+// ---------- fees paid by the customer ----------
+
+fn setting_f64(key: &str, default: f64) -> f64 {
+    control::setting(key).ok().flatten().and_then(|v| v.trim().parse().ok()).unwrap_or(default)
+}
+
+/// Polar's fee, from the control settings `polar_fee_percent`, `polar_fee_fixed_cents` and
+/// `polar_fee_extra_percent` (international cards; charged on most of our customers).
+pub struct PolarFees {
+    pub percent: f64,
+    pub fixed_cents: i64,
+    pub extra_percent: f64,
+}
+
+pub fn polar_fees() -> PolarFees {
+    PolarFees {
+        percent: setting_f64("polar_fee_percent", 5.0),
+        fixed_cents: setting_f64("polar_fee_fixed_cents", 50.0) as i64,
+        extra_percent: setting_f64("polar_fee_extra_percent", 1.5),
+    }
+}
+
+/// Smallest gross G (whole units) with G - (G * pct + fixed) >= net: G = (net + fixed) / (1 - pct).
+pub fn gross_up(net: i64, percent: f64, fixed: f64) -> i64 {
+    let rate = percent / 100.0;
+    if net <= 0 || rate >= 1.0 {
+        return net.max(0);
+    }
+    let g = ((net as f64 + fixed) / (1.0 - rate) - 1e-9).ceil() as i64;
+    g.max(net)
+}
+
+pub struct Price {
+    pub net: i64,
+    pub fee: i64,
+    pub total: i64,
+}
+
+/// The USD price customers pay for a plan (cents): the net price grossed up by Polar's fee.
+pub fn polar_price(plan: &Plan) -> Price {
+    let f = polar_fees();
+    let total = gross_up(plan.price_usd_cents, f.percent + f.extra_percent, f.fixed_cents as f64);
+    Price {
+        net: plan.price_usd_cents,
+        fee: total - plan.price_usd_cents,
+        total,
+    }
+}
+
+/// One DOKU payment method the customer can pick.
+pub struct DokuMethod {
+    pub method: String,
+    pub label: String,
+    pub kind: String,
+}
+
+pub fn doku_methods() -> Result<Vec<DokuMethod>> {
+    control::with(|c| {
+        crate::db::rows(
+            c,
+            "SELECT method, MIN(label), MIN(kind), MIN(sort) AS s FROM doku_fees WHERE enabled = 1 GROUP BY method ORDER BY s, method",
+            [],
+            |r| {
+                Ok(DokuMethod {
+                    method: r.get(0)?,
+                    label: r.get(1)?,
+                    kind: r.get(2)?,
+                })
+            },
+        )
+    })
+}
+
+pub struct Quote {
+    pub net: i64,
+    pub fee: i64,
+    pub total: i64,
+    pub label: String,
+    pub currency: String,
+}
+
+/// DOKU's fee for paying `net` IDR with `method` (the row with the smallest `upto` covering the
+/// amount, else the `upto = 0` row), VAT on the fee included, grossed up so we receive `net`.
+pub fn doku_fee(method: &str, net: i64) -> Result<(String, i64)> {
+    let rows: Vec<(String, i64, f64, i64)> = control::with(|c| {
+        crate::db::rows(
+            c,
+            "SELECT label, upto, percent, flat FROM doku_fees WHERE method = ? AND enabled = 1 ORDER BY upto = 0, upto",
+            [method],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+    })?;
+    let Some((label, _, pct, flat)) = rows.iter().find(|(_, upto, _, _)| *upto == 0 || net <= *upto).cloned() else {
+        bail!("Payment method {method} is not available");
+    };
+    let vat = 1.0 + setting_f64("doku_fee_vat_percent", 11.0) / 100.0;
+    let total = gross_up(net, pct * vat, flat as f64 * vat);
+    Ok((label, total - net))
+}
+
+pub fn doku_quote(plan: &Plan, months: i64, method: &str) -> Result<Quote> {
+    let Some((_, net, currency)) = control::plan_prices(&plan.id, "doku")?.into_iter().find(|p| p.0 == months) else {
+        bail!("No IDR price for {} month(s) of the {} plan", months, plan.name);
+    };
+    let (label, fee) = doku_fee(method, net)?;
+    Ok(Quote {
+        net,
+        fee,
+        total: net + fee,
+        label,
+        currency,
+    })
+}
+
+// ---------- Polar subscription revocation (account deletion) ----------
+
+/// Cancel a Polar subscription at once (no refund: Polar only refunds through its refund API).
+/// Already revoked or unknown subscriptions count as done.
+pub fn polar_revoke(subscription_id: &str) -> Result<()> {
+    let token = env("POLAR_ACCESS_TOKEN").unwrap_or_default();
+    if token.is_empty() {
+        bail!("POLAR_ACCESS_TOKEN is not set");
+    }
+    match net::req("DELETE", format!("{}/v1/subscriptions/{subscription_id}", polar_api()))
+        .bearer(&token)
+        .send()
+    {
+        Ok(_) => Ok(()),
+        Err(Error::Http { status: 403 | 404, .. }) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Revoke now, or queue a retry (the account is deleted either way).
+pub fn polar_revoke_or_queue(subscription_id: &str, tenant_id: &str) {
+    if let Err(e) = polar_revoke(subscription_id) {
+        eprintln!(
+            "{} [billing] revoking Polar subscription {subscription_id} of deleted {tenant_id} failed, will retry: {e}",
+            iso(now())
+        );
+        let _ = control::with(|c| {
+            c.execute(
+                "INSERT OR IGNORE INTO polar_cancellations (subscription_id, tenant_id, attempts, next_at, last_error, created_at) VALUES (?, ?, 1, ?, ?, ?)",
+                params![subscription_id, tenant_id, now() + 5 * 60_000, e.to_string(), now()],
+            )?;
+            Ok(())
+        });
+    }
+}
+
+/// Retry queued revocations (backoff doubling from 5 minutes, up to a day).
+pub fn retry_polar_revocations() -> Result<()> {
+    let due: Vec<(String, String, i64)> = control::with(|c| {
+        crate::db::rows(
+            c,
+            "SELECT subscription_id, tenant_id, attempts FROM polar_cancellations WHERE next_at <= ?",
+            [now()],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+    })?;
+    for (sub, tenant, attempts) in due {
+        match polar_revoke(&sub) {
+            Ok(()) => {
+                control::with(|c| Ok(c.execute("DELETE FROM polar_cancellations WHERE subscription_id = ?", [&sub]).map(|_| ())?))?;
+                eprintln!("{} [billing] revoked Polar subscription {sub} of deleted {tenant}", iso(now()));
+            }
+            Err(e) => {
+                let wait = (5 * 60_000i64 << attempts.min(8)).min(86_400_000);
+                control::with(|c| {
+                    c.execute(
+                        "UPDATE polar_cancellations SET attempts = attempts + 1, next_at = ?, last_error = ? WHERE subscription_id = ?",
+                        params![now() + wait, e.to_string(), sub],
+                    )?;
+                    Ok(())
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn uuid4() -> String {
@@ -453,6 +655,25 @@ mod tests {
             "unpadded, as in DOKU's QRIS sample"
         );
         assert!(!doku_verify("another-secret", &c, &sig));
+    }
+
+    #[test]
+    fn gross_up_covers_the_fee() {
+        // Polar: $3 net at 6.5% + 50¢ -> $3.75; $12 net -> $13.37.
+        assert_eq!(gross_up(300, 6.5, 50.0), 375);
+        assert_eq!(gross_up(1200, 6.5, 50.0), 1337);
+        for net in [1, 99, 300, 1200, 15000, 123457] {
+            for (pct, fixed) in [(6.5, 50.0), (0.777, 1110.0), (4.44, 0.0), (0.0, 4995.0)] {
+                let g = gross_up(net, pct, fixed);
+                let received = g as f64 - (g as f64 * pct / 100.0 + fixed);
+                assert!(received >= net as f64 - 1e-6, "net {net} at {pct}% + {fixed}: gross {g} leaves {received}");
+                assert!(
+                    (g - 1) as f64 - ((g - 1) as f64 * pct / 100.0 + fixed) < net as f64 || g == net,
+                    "{g} is the smallest"
+                );
+            }
+        }
+        assert_eq!(gross_up(0, 5.0, 50.0), 0);
     }
 
     #[test]
