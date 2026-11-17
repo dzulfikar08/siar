@@ -2,7 +2,8 @@
 //! and local media. One thread per request, like Bun's async handlers never blocking each other.
 
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use tiny_http::{Header, Method, Request, Response, Server};
 
 use crate::config::config;
@@ -271,6 +272,44 @@ fn serve_media(rest: &str) -> Result<Option<(std::fs::File, &'static str)>> {
     }
 }
 
+/// Requests go to a pool of reused worker threads (warm stacks and allocator caches). When every
+/// worker is busy (a long publish_now, say) another one is started, so nothing waits behind it.
+fn dispatch(server: Arc<Server>) {
+    let (tx, rx) = mpsc::channel::<Request>();
+    let rx = Arc::new(Mutex::new(rx));
+    // Workers waiting for a request. The dispatcher claims one per request or starts a new worker,
+    // so a request never queues behind a busy one.
+    let idle = Arc::new(AtomicUsize::new(0));
+    let spawn_worker = |rx: Arc<Mutex<mpsc::Receiver<Request>>>, idle: Arc<AtomicUsize>| {
+        std::thread::Builder::new().name("worker".into()).stack_size(1024 * 1024).spawn(move || loop {
+            let next = rx.lock().unwrap_or_else(|e| e.into_inner()).recv();
+            match next {
+                Ok(req) => {
+                    route(req);
+                    idle.fetch_add(1, Ordering::SeqCst);
+                }
+                Err(_) => return,
+            }
+        })
+    };
+    for _ in 0..2 {
+        if spawn_worker(rx.clone(), idle.clone()).is_ok() {
+            idle.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    for req in server.incoming_requests() {
+        let claimed = idle.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
+        if !claimed {
+            if let Err(e) = spawn_worker(rx.clone(), idle.clone()) {
+                eprintln!("[http] cannot start a worker: {e}");
+            }
+        }
+        if tx.send(req).is_err() {
+            return;
+        }
+    }
+}
+
 pub fn start() -> Result<()> {
     let c = config();
     if c.api_token.as_deref().map(|t| t.len() < 24).unwrap_or(true) {
@@ -284,14 +323,7 @@ pub fn start() -> Result<()> {
     eprintln!("siar listening on http://{addr} (public: {})", c.public_url);
     std::thread::Builder::new()
         .name("http".into())
-        .spawn(move || {
-            for req in server.incoming_requests() {
-                let spawned = std::thread::Builder::new().stack_size(1024 * 1024).spawn(move || route(req));
-                if let Err(e) = spawned {
-                    eprintln!("[http] cannot spawn handler: {e}");
-                }
-            }
-        })
+        .spawn(move || dispatch(server))
         .map_err(|e| crate::util::Error::Msg(e.to_string()))?;
     Ok(())
 }
