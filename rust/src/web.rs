@@ -98,7 +98,7 @@ fn redirect(to: &str, cookie: Option<String>) -> Resp {
 }
 
 fn hdr(req: &Request, name: &str) -> Option<String> {
-    req.headers().iter().find(|h| h.field.equiv(name)).map(|h| h.value.as_str().to_string())
+    req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name)).map(|h| h.value.as_str().to_string())
 }
 
 /// Client IP; behind Cloudflare/a proxy with SIAR_TRUST_PROXY=1 the forwarded address.
