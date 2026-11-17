@@ -212,7 +212,7 @@ pub fn doku_checkout(tenant_id: &str, plan: &Plan, months: i64, email: Option<&s
     let Some((_, amount, currency)) = control::plan_prices(&plan.id, "doku")?.into_iter().find(|p| p.0 == months) else {
         bail!("No IDR price for {} month(s) of the {} plan", months, plan.name);
     };
-    let invoice = format!("SIAR-{tenant_id}-{}", &hex(&random_bytes(6)));
+    let invoice = format!("SIAR-{tenant_id}-{}", hex(&random_bytes(6)));
     let body = json!({
         "order": {
             "amount": amount,

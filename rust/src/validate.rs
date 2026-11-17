@@ -253,7 +253,7 @@ mod ts_fixture {
             assert_eq!(crate::providers::linkedin::escape_little(t), case["escape"].as_str().unwrap(), "escape {t:?}");
             for (kw, want) in case["matches"].as_object().unwrap() {
                 assert_eq!(
-                    crate::automations::matches(&[kw.clone()], "contains", Some(t)),
+                    crate::automations::matches(std::slice::from_ref(kw), "contains", Some(t)),
                     want.as_bool().unwrap(),
                     "matches {kw:?} in {t:?}"
                 );

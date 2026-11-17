@@ -1,0 +1,31 @@
+# siar hosted service (multi-tenant) at app.siar.diatur.com. See rust/HOSTED.md.
+# Separate from the self-hosted Bun `siar` service and the `siar-rs` trial: own binary, data and env.
+[Unit]
+Description=siar hosted (multi-tenant) social media scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=siar-hosted
+Group=siar-hosted
+WorkingDirectory=/opt/siar-hosted
+EnvironmentFile=/opt/siar-hosted/.env
+# Set on the command line: EnvironmentFile= would override Environment= lines.
+ExecStart=/usr/bin/env SIAR_MODE=hosted SIAR_DATA_DIR=/opt/siar-hosted/data /opt/siar-hosted/bin/siar serve
+Restart=always
+RestartSec=3
+TimeoutStopSec=60
+MemoryMax=512M
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/siar-hosted/data
+
+[Install]
+WantedBy=multi-user.target

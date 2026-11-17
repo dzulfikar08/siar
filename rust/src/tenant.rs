@@ -171,6 +171,8 @@ pub fn get(id: &str) -> Result<Arc<Tenant>> {
     // Bound each tenant's page cache (default is 2 MB) so many open tenants stay small.
     let kib = env("SIAR_TENANT_CACHE_KIB").and_then(|v| v.parse::<i64>().ok()).unwrap_or(512);
     conn.execute_batch(&format!("PRAGMA cache_size = -{kib};"))?;
+    // Fewer cached prepared statements per tenant: they are most of an open tenant's memory.
+    conn.set_prepared_statement_cache_capacity(env("SIAR_TENANT_STMT_CACHE").and_then(|v| v.parse().ok()).unwrap_or(16));
     let t = Arc::new(Tenant {
         id: id.to_string(),
         conn: Mutex::new(conn),

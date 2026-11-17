@@ -3,7 +3,6 @@
 //! because the config, database and environment are process-wide.
 
 use serde_json::{json, Value};
-use std::io::Read;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 

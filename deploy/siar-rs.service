@@ -10,7 +10,7 @@ User=siar
 Group=siar
 WorkingDirectory=/opt/siar-rs
 EnvironmentFile=/opt/siar-rs/.env
-# Set after the env file so it cannot be overridden by it (EnvironmentFile wins over Environment=).
+# Note: EnvironmentFile= wins over Environment=, so never set SIAR_DATA_DIR in /opt/siar-rs/.env.
 Environment=SIAR_DATA_DIR=/opt/siar-rs/data
 ExecStart=/opt/siar-rs/bin/siar serve
 Restart=always

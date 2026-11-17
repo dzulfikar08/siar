@@ -543,7 +543,9 @@ pub fn put(m: &mut Map<String, Value>, k: &str, v: Option<Value>) {
 }
 
 /// The token request with the client credentials, as basic auth or in the form (src/grant.ts clientParams).
-fn client_params(spec: &OAuthSpec) -> Result<(net::Req, Vec<(&'static str, Option<String>)>)> {
+type TokenForm = Vec<(&'static str, Option<String>)>;
+
+fn client_params(spec: &OAuthSpec) -> Result<(net::Req, TokenForm)> {
     let (id, secret) = app_creds(spec.env)?;
     let mut rq = net::post(&spec.token_url).header("accept", "application/json");
     let mut form = vec![];

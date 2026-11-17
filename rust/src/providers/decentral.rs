@@ -18,7 +18,7 @@ use crate::util::{bail, hashtags, hex, js_string, now, permanent, random_bytes, 
 // ---------- BIP-340 (k256) and bech32 (NIP-19) ----------
 
 fn unhex(s: &str) -> Result<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         bail!("Invalid hex");
     }
     (0..s.len() / 2)
