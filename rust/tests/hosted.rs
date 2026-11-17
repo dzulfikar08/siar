@@ -470,6 +470,134 @@ fn hosted_mode() {
         "A has no app and no shared app"
     );
 
+    // ---------- OAuth for /mcp: metadata, registration, consent, tokens, revocation ----------
+    let (s, prm) = http(siar::net::get(format!("{}/.well-known/oauth-protected-resource/mcp", base())));
+    assert_eq!(s, 200);
+    let prm: Value = serde_json::from_str(&prm).unwrap();
+    assert_eq!(prm["resource"], "http://localhost:9/mcp");
+    assert_eq!(prm["authorization_servers"][0], "http://localhost:9");
+    let (_, asm) = http(siar::net::get(format!("{}/.well-known/oauth-authorization-server", base())));
+    let asm: Value = serde_json::from_str(&asm).unwrap();
+    assert_eq!(asm["code_challenge_methods_supported"], json!(["S256"]));
+    assert_eq!(asm["registration_endpoint"], "http://localhost:9/oauth2/register");
+    let (s, _) = http(siar::net::post(format!("{}/oauth2/register", base())).json(json!({ "redirect_uris": ["http://evil.example/cb"] })));
+    assert_eq!(s, 400, "plain http outside localhost is refused");
+    let cb = "https://claude.ai/api/mcp/auth_callback";
+    let (s, reg) = http(siar::net::post(format!("{}/oauth2/register", base())).json(json!({ "redirect_uris": [cb], "client_name": "Claude <b>" })));
+    assert_eq!(s, 201, "{reg}");
+    let reg: Value = serde_json::from_str(&reg).unwrap();
+    let client_id = reg["client_id"].as_str().unwrap().to_string();
+    assert_eq!(reg["token_endpoint_auth_method"], "none");
+    let verifier = "siar-test-verifier-0123456789-abcdefghijklmnopqrstuvwxyz";
+    let challenge = "3gg9_IUZwoQvg_dMdQ5tFis5A_Y6WoIhZ_XIqmVDea4";
+    let q = siar::util::query_string(&[
+        ("response_type", "code".into()),
+        ("client_id", client_id.clone()),
+        ("redirect_uri", cb.into()),
+        ("code_challenge", challenge.into()),
+        ("code_challenge_method", "S256".into()),
+        ("state", "st-1".into()),
+        ("resource", "http://localhost:9/mcp".into()),
+    ]);
+    let res = siar::net::get(format!("{}/oauth2/authorize?{q}", base())).no_redirects().send().unwrap();
+    assert_eq!(res.status, 303);
+    assert!(
+        res.header("location").unwrap().starts_with("/login?next=%2Foauth2%2Fauthorize"),
+        "sign in first"
+    );
+    let (s, consent) = http(siar::net::get(format!("{}/oauth2/authorize?{q}", base())).header("cookie", cookie.clone()));
+    assert_eq!(s, 200);
+    assert!(
+        consent.contains("Allow Claude &lt;b&gt; to use your siar account") && consent.contains("claude.ai"),
+        "escaped name, redirect host"
+    );
+    let (s, _) = http(
+        siar::net::get(format!("{}/oauth2/authorize?{}", base(), q.replace("auth_callback", "other")))
+            .header("cookie", cookie.clone())
+            .no_redirects(),
+    );
+    assert_eq!(s, 400, "an unregistered redirect_uri is shown as an error, not followed");
+    let mut fields: Vec<(&str, Option<String>)> = vec![
+        ("response_type", Some("code".into())),
+        ("client_id", Some(client_id.clone())),
+        ("redirect_uri", Some(cb.into())),
+        ("code_challenge", Some(challenge.into())),
+        ("code_challenge_method", Some("S256".into())),
+        ("state", Some("st-1".into())),
+        ("decision", Some("allow".into())),
+    ];
+    let (s, _) = http(
+        siar::net::post(format!("{}/oauth2/authorize", base()))
+            .header("cookie", cookie.clone())
+            .no_redirects()
+            .form(&fields),
+    );
+    assert_eq!(s, 403, "consent needs the CSRF token");
+    fields.push(("csrf", Some("csrf-token-1".into())));
+    let res = siar::net::post(format!("{}/oauth2/authorize", base()))
+        .header("cookie", cookie.clone())
+        .no_redirects()
+        .form(&fields)
+        .send()
+        .unwrap();
+    let loc = res.header("location").unwrap();
+    assert!(loc.starts_with(&format!("{cb}?code=siar_ac_")) && loc.ends_with("&state=st-1"), "{loc}");
+    let code: String = loc.split("code=").nth(1).unwrap().chars().take_while(|c| *c != '&').collect();
+    let token = |form: Vec<(&str, Option<String>)>| -> (u16, Value) {
+        let (s, b) = http(siar::net::post(format!("{}/oauth2/token", base())).form(&form));
+        (s, serde_json::from_str(&b).unwrap_or(Value::Null))
+    };
+    let (s, t) = token(vec![
+        ("grant_type", Some("authorization_code".into())),
+        ("code", Some(code.clone())),
+        ("redirect_uri", Some(cb.into())),
+        ("client_id", Some(client_id.clone())),
+        ("code_verifier", Some("wrong-verifier-0123456789-abcdefghijklmnopqrstuvwxyz".into())),
+    ]);
+    assert_eq!((s, t["error"].as_str()), (400, Some("invalid_grant")));
+    let (s, t) = token(vec![
+        ("grant_type", Some("authorization_code".into())),
+        ("code", Some(code.clone())),
+        ("redirect_uri", Some(cb.into())),
+        ("client_id", Some(client_id.clone())),
+        ("code_verifier", Some(verifier.into())),
+    ]);
+    assert_eq!(s, 200, "{t}");
+    let access = t["access_token"].as_str().unwrap().to_string();
+    assert_eq!(t["expires_in"], 3600);
+    // The token acts as an API key of the workspace that allowed it.
+    assert_eq!(tool(&access, "list_posts", json!({})).unwrap(), json!([]));
+    assert_eq!(tool(&access, "status", json!({})).unwrap()["plan"]["id"], "tiny");
+    let (s, t2) = token(vec![
+        ("grant_type", Some("refresh_token".into())),
+        ("refresh_token", Some(t["refresh_token"].as_str().unwrap().into())),
+        ("client_id", Some(client_id.clone())),
+    ]);
+    assert_eq!(s, 200);
+    let (s, _) = token(vec![
+        ("grant_type", Some("refresh_token".into())),
+        ("refresh_token", Some(t["refresh_token"].as_str().unwrap().into())),
+        ("client_id", Some(client_id.clone())),
+    ]);
+    assert_eq!(s, 400, "rotated refresh tokens work once");
+    let access2 = t2["access_token"].as_str().unwrap().to_string();
+    let (_, dash) = http(siar::net::get(format!("{}/dashboard", base())).header("cookie", cookie.clone()));
+    assert!(dash.contains("Connected apps") && dash.contains("Claude &lt;b&gt;"));
+    let grant = siar::control::with(|c| siar::authz::grants(c, &mine)).unwrap()[0].id.clone();
+    let (s, _) = http(
+        siar::net::post(format!("{}/dashboard/connected/{grant}/revoke", base()))
+            .header("cookie", cookie.clone())
+            .no_redirects()
+            .form(&[("csrf", Some("csrf-token-1".into()))]),
+    );
+    assert_eq!(s, 303);
+    let (s, _) = http(
+        siar::net::post(format!("{}/mcp", base()))
+            .bearer(&access2)
+            .json(json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })),
+    );
+    assert_eq!(s, 401, "revoked apps are signed out");
+
     // Prepaid renewal reminders by e-mail: 7 days before, 1 day before, once per period.
     let mails = |calls: &std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>| {
         calls

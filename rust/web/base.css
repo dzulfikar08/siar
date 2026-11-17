@@ -385,3 +385,5 @@ table.tools code{background:none;border:0;padding:0}
 .no{color:var(--muted)}
 .demo{margin:0}
 .demo video{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:var(--r-l);background:var(--panel);box-shadow:0 30px 60px -30px rgba(0,0,0,.7)}
+.howto{padding-left:1.3rem;margin:0 0 1rem}
+.howto li{margin:.25rem 0}

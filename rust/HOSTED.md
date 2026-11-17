@@ -245,6 +245,48 @@ Sessions: random 256-bit cookie `siar_session` (HttpOnly, SameSite=Lax, Secure o
 a hash, 30 days. Every dashboard form has a CSRF token and cross-origin posts are refused. Sign-in is
 rate-limited per IP (20 per 10 minutes).
 
+## OAuth for /mcp (Claude.ai and ChatGPT connectors)
+
+`/mcp` takes an API key (`siar_…`) or an OAuth access token (`siar_at_…`). Connectors in Claude.ai
+and ChatGPT use OAuth, following the MCP authorization spec (2025-06-18):
+
+1. `/mcp` without a valid token answers 401 with
+   `WWW-Authenticate: Bearer resource_metadata="<SIAR_PUBLIC_URL>/.well-known/oauth-protected-resource/mcp"`.
+2. `/.well-known/oauth-protected-resource` (and `…/mcp`, RFC 9728) names the resource
+   `<SIAR_PUBLIC_URL>/mcp` and this server as its authorization server.
+3. `/.well-known/oauth-authorization-server` (RFC 8414) lists the endpoints: `/oauth2/authorize`,
+   `/oauth2/token`, `/oauth2/register`, `/oauth2/revoke`; code flow only, PKCE `S256` only,
+   public clients only (`token_endpoint_auth_method: none`).
+4. Clients identify themselves in one of two ways:
+   - Dynamic client registration (RFC 7591) at `POST /oauth2/register`: `redirect_uris` must be
+     https (no fragment) or http on `localhost`, `127.0.0.1` or `[::1]`. Rate limit: 30 per IP per
+     hour. Unused registrations are removed after 7 days.
+   - A client ID metadata document (`client_id` is an https URL, as Claude.ai's default "published
+     identity"): the server fetches the JSON (public addresses only, no redirects, 10 s), which
+     must name itself as `client_id` and list allowed `redirect_uris`.
+5. `/oauth2/authorize` checks the client and redirect URI (exact match; errors are shown on a page,
+   never redirected), `response_type=code`, an S256 `code_challenge`, and `resource` if given
+   (must be the `/mcp` URL or the server URL). Without a session it sends the user to `/login`
+   with `next`, through GitHub or Google sign-in and back. The consent page names the client
+   (escaped; the name is the client's own claim), the redirect host and the workspace, with Allow
+   and Deny (CSRF token and same-origin check; `frame-ancestors 'none'`).
+6. `/oauth2/token`: `authorization_code` (codes are one-time, 5 minutes, bound to the client,
+   redirect URI and PKCE challenge; a reused code also kills the tokens of its grant) and
+   `refresh_token` (rotation: each refresh token works once). Access tokens last 1 hour, refresh
+   tokens 90 days. Only SHA-256 hashes are stored (`oauth_codes`, `oauth_tokens` in control.sqlite).
+7. An access token acts exactly like an API key of the workspace that allowed it: same plan limits,
+   rate limit per grant, tenant isolation.
+
+Tables (migration 4 of control.sqlite): `oauth_clients`, `oauth_grants` (one per workspace and
+client: the dashboard's **Connected apps**, with client name, redirect host, allowed and last-used
+times and Revoke), `oauth_codes`, `oauth_tokens`; `login_states.next`. Revoking a connected app
+deletes its tokens and codes at once. Deleting a workspace deletes its grants.
+
+Known redirect URIs: Claude `https://claude.ai/api/mcp/auth_callback` (and
+`https://claude.com/api/mcp/auth_callback`), ChatGPT `https://chatgpt.com/connector_platform_oauth_redirect`.
+CORS (`*`, no cookies) is on for `/mcp`, `/.well-known/*`, `/oauth2/token`, `/oauth2/register` and
+`/oauth2/revoke` so browser-based MCP clients work.
+
 ## Platform apps: own apps now, shared apps later
 
 **Phase 1, bring your own app.** In the dashboard (Your own platform apps) a tenant saves the client

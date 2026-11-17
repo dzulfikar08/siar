@@ -273,7 +273,7 @@ fn login_redirect(p: &LoginProvider) -> String {
     format!("{}/auth/{}/callback", public(), p.id)
 }
 
-fn start_login(p: &LoginProvider) -> Result<String> {
+fn start_login(p: &LoginProvider, next: Option<String>) -> Result<String> {
     let Some((client_id, _)) = login_creds(p) else {
         return Err(Error::Msg(format!("Sign-in with {} is not configured", p.name)));
     };
@@ -282,8 +282,8 @@ fn start_login(p: &LoginProvider) -> Result<String> {
     control::with(|c| {
         c.execute("DELETE FROM login_states WHERE created_at < ?", [now() - 15 * 60_000])?;
         c.execute(
-            "INSERT INTO login_states (state, provider, verifier, created_at) VALUES (?, ?, ?, ?)",
-            params![state, p.id, verifier, now()],
+            "INSERT INTO login_states (state, provider, verifier, created_at, next) VALUES (?, ?, ?, ?, ?)",
+            params![state, p.id, verifier, now(), next],
         )?;
         Ok(())
     })?;
@@ -318,6 +318,20 @@ fn start_login(p: &LoginProvider) -> Result<String> {
             )
         }
     })
+}
+
+/// The page to open after a sign-in started with `next` (an authorization request).
+fn login_next(state: &str) -> Option<String> {
+    control::with(|c| {
+        Ok(
+            c.query_row("SELECT next FROM login_states WHERE state = ?", [state], |r| r.get::<_, Option<String>>(0))
+                .optional()?
+                .flatten(),
+        )
+    })
+    .ok()
+    .flatten()
+    .and_then(|n| safe_next(&n))
 }
 
 /// (subject, email (verified only), name)
@@ -500,21 +514,33 @@ pub fn route(mut req: Request) {
         return serve_static(req, &name);
     }
 
+    if method == Method::Options && cors_path(&path) {
+        let _ = req.respond(with_cors(empty(204)));
+        return;
+    }
+
     let resp = match (parts.as_slice(), get, post) {
         (["health"], true, _) => text("ok", 200),
+        ([".well-known", "oauth-protected-resource"] | [".well-known", "oauth-protected-resource", "mcp"], true, _) => json_resp(&resource_metadata(), 200),
+        ([".well-known", "oauth-authorization-server"] | [".well-known", "oauth-authorization-server", "mcp"], true, _) => json_resp(&server_metadata(), 200),
+        (["oauth2", "register"], _, true) => register_endpoint(&mut req),
+        (["oauth2", "authorize"], true, _) => authorize_get(&req, &query),
+        (["oauth2", "authorize"], _, true) => authorize_post(&mut req),
+        (["oauth2", "token"], _, true) => token_endpoint(&mut req),
+        (["oauth2", "revoke"], _, true) => revoke_endpoint(&mut req),
         ([""], true, _) => landing(&req),
         (["docs"], true, _) => docs(&req),
         (["pricing"], true, _) => pricing(&req),
         (["privacy"], true, _) => privacy(&req),
         (["terms"], true, _) => terms(&req),
-        (["login"], true, _) => login_page(&req, query_param(&query, "error")),
+        (["login"], true, _) => login_page(&req, query_param(&query, "error"), query_param(&query, "next")),
         (["auth", p], true, _) => match LOGIN.iter().find(|l| l.id == *p) {
             Some(_) if !limits::allow(&format!("login:{}", client_ip(&req)), 20, 600_000) => {
-                login_page(&req, Some("Too many sign-in attempts; wait a few minutes".into()))
+                login_page(&req, Some("Too many sign-in attempts; wait a few minutes".into()), None)
             }
-            Some(l) => match start_login(l) {
+            Some(l) => match start_login(l, query_param(&query, "next").and_then(|n| safe_next(&n))) {
                 Ok(u) => redirect(&u, None),
-                Err(e) => login_page(&req, Some(e.to_string())),
+                Err(e) => login_page(&req, Some(e.to_string()), None),
             },
             None => not_found(&req),
         },
@@ -551,6 +577,7 @@ pub fn route(mut req: Request) {
         },
         _ => not_found(&req),
     };
+    let resp = if cors_path(&path) { with_cors(resp) } else { resp };
     let _ = req.respond(resp);
 }
 
@@ -584,6 +611,383 @@ fn with_session(req: &Request, f: impl FnOnce(&Session) -> Resp) -> Resp {
     }
 }
 
+// ---------- OAuth for /mcp (Claude.ai and ChatGPT connectors; storage in authz.rs) ----------
+
+fn mcp_resource() -> String {
+    format!("{}/mcp", public())
+}
+
+/// RFC 9728 protected resource metadata for /mcp.
+fn resource_metadata() -> Value {
+    json!({
+        "resource": mcp_resource(),
+        "authorization_servers": [public()],
+        "bearer_methods_supported": ["header"],
+        "scopes_supported": ["mcp"],
+        "resource_name": "siar",
+        "resource_documentation": format!("{}/docs", public()),
+    })
+}
+
+/// RFC 8414 authorization server metadata.
+fn server_metadata() -> Value {
+    let p = public();
+    json!({
+        "issuer": p,
+        "authorization_endpoint": format!("{p}/oauth2/authorize"),
+        "token_endpoint": format!("{p}/oauth2/token"),
+        "registration_endpoint": format!("{p}/oauth2/register"),
+        "revocation_endpoint": format!("{p}/oauth2/revoke"),
+        "response_types_supported": ["code"],
+        "response_modes_supported": ["query"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+        "revocation_endpoint_auth_methods_supported": ["none"],
+        "scopes_supported": ["mcp"],
+        "client_id_metadata_document_supported": true,
+        "service_documentation": format!("{p}/docs"),
+    })
+}
+
+/// The 401 that starts the MCP authorization flow.
+fn mcp_unauthorized(presented: bool) -> Resp {
+    let mut v = format!("Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource/mcp\"", public());
+    if presented {
+        v.push_str(", error=\"invalid_token\"");
+    }
+    Response::from_string("Unauthorized")
+        .with_status_code(401)
+        .with_header(header("www-authenticate", &v))
+        .with_header(header("content-type", "text/plain;charset=utf-8"))
+}
+
+/// Endpoints MCP clients call from browsers (inspectors, web clients) get CORS; they use bearer
+/// tokens, never cookies.
+fn cors_path(path: &str) -> bool {
+    path == "/mcp" || path.starts_with("/.well-known/") || matches!(path, "/oauth2/token" | "/oauth2/register" | "/oauth2/revoke")
+}
+
+fn with_cors(r: Resp) -> Resp {
+    r.with_header(header("access-control-allow-origin", "*"))
+        .with_header(header("access-control-allow-methods", "GET, POST, DELETE, OPTIONS"))
+        .with_header(header(
+            "access-control-allow-headers",
+            "authorization, content-type, mcp-protocol-version, mcp-session-id, last-event-id",
+        ))
+        .with_header(header("access-control-expose-headers", "www-authenticate, mcp-session-id"))
+        .with_header(header("access-control-max-age", "86400"))
+}
+
+fn no_store(r: Resp) -> Resp {
+    r.with_header(header("cache-control", "no-store")).with_header(header("pragma", "no-cache"))
+}
+
+fn oauth_error(status: u16, error: &str, description: &str) -> Resp {
+    no_store(json_resp(&json!({ "error": error, "error_description": description }), status))
+}
+
+/// `resource` (RFC 8707) must name this server's MCP endpoint when given.
+fn resource_ok(r: &str) -> bool {
+    let r = r.trim_end_matches('/');
+    r == mcp_resource() || r == public()
+}
+
+/// The `next` page after sign-in: only an authorization request on this server.
+fn safe_next(n: &str) -> Option<String> {
+    (n.starts_with("/oauth2/authorize?") && !n.contains(['\r', '\n'])).then(|| n.to_string())
+}
+
+/// `uri` with query parameters added.
+fn add_query(uri: &str, params: &[(&str, String)]) -> String {
+    let sep = if uri.contains('?') { '&' } else { '?' };
+    format!("{uri}{sep}{}", crate::util::query_string(params))
+}
+
+/// A checked authorization request.
+struct AuthzReq {
+    client: crate::authz::Client,
+    redirect_uri: String,
+    state: Option<String>,
+    challenge: String,
+    resource: Option<String>,
+}
+
+impl AuthzReq {
+    /// Hidden fields that carry the request through the consent form.
+    fn fields(&self) -> String {
+        let mut f = vec![
+            ("response_type", "code".to_string()),
+            ("client_id", self.client.id.clone()),
+            ("redirect_uri", self.redirect_uri.clone()),
+            ("code_challenge", self.challenge.clone()),
+            ("code_challenge_method", "S256".to_string()),
+        ];
+        if let Some(s) = &self.state {
+            f.push(("state", s.clone()));
+        }
+        if let Some(r) = &self.resource {
+            f.push(("resource", r.clone()));
+        }
+        f.iter()
+            .map(|(k, v)| format!("<input type=\"hidden\" name=\"{k}\" value=\"{}\">", esc(v)))
+            .collect()
+    }
+
+    fn back(&self, params: Vec<(&str, String)>) -> Resp {
+        let mut p = params;
+        if let Some(s) = &self.state {
+            p.push(("state", s.clone()));
+        }
+        redirect(&add_query(&self.redirect_uri, &p), None)
+    }
+}
+
+fn authz_page_error(req: &Request, msg: &str) -> Resp {
+    page(
+        "Cannot connect",
+        &format!(
+            "<div class=\"wrap narrow\"><h1>This app cannot connect</h1><p class=\"note err\" role=\"alert\">{}</p><p class=\"muted\">Remove the connector in your AI app and add it again. If it keeps happening, write to <a href=\"mailto:{c}\">{c}</a>.</p></div>",
+            esc(msg),
+            c = esc(&contact())
+        ),
+        signed_in(req),
+    )
+    .with_status_code(400)
+}
+
+/// Check an authorization request (query or consent form). Problems with the client or the
+/// redirect URI are shown here; anything else goes back to the client as an OAuth error.
+fn authz_request(req: &Request, get: &dyn Fn(&str) -> Option<String>) -> std::result::Result<AuthzReq, Resp> {
+    let client_id = get("client_id").unwrap_or_default();
+    if crate::authz::is_metadata_url(&client_id) {
+        // A client identified by its metadata document: fetch it (public addresses only).
+        let fetched = limits::check_public_url(&client_id)
+            .and_then(|_| {
+                crate::net::get(&client_id)
+                    .no_redirects()
+                    .timeout_secs(10)
+                    .header("accept", "application/json")
+                    .get_json()
+            })
+            .and_then(|doc| crate::authz::client_from_metadata(&client_id, &doc))
+            .and_then(|cl| control::with(|c| crate::authz::save_client(c, &cl)));
+        if let Err(e) = fetched {
+            return Err(authz_page_error(req, &format!("Could not read the app's client metadata: {e}")));
+        }
+    }
+    let client = control::with(|c| crate::authz::client(c, &client_id)).ok().flatten();
+    let Some(client) = client else {
+        return Err(authz_page_error(req, "This app is not registered with siar (unknown client_id)."));
+    };
+    let redirect_uri = match get("redirect_uri").filter(|u| !u.is_empty()) {
+        Some(u) => u,
+        None if client.redirect_uris.len() == 1 => client.redirect_uris[0].clone(),
+        None => return Err(authz_page_error(req, "The request has no redirect_uri.")),
+    };
+    if !client.redirect_uris.contains(&redirect_uri) {
+        return Err(authz_page_error(req, "The redirect_uri was not registered by this app."));
+    }
+    let r = AuthzReq {
+        client,
+        redirect_uri,
+        state: get("state").filter(|s| !s.is_empty()).map(|s| s.chars().take(2000).collect()),
+        challenge: get("code_challenge").unwrap_or_default(),
+        resource: get("resource").filter(|s| !s.is_empty()),
+    };
+    let fail = |error: &str, d: &str| Err(r.back(vec![("error", error.to_string()), ("error_description", d.to_string())]));
+    if get("response_type").as_deref() != Some("code") {
+        return fail("unsupported_response_type", "Only response_type=code is supported");
+    }
+    if get("code_challenge_method").as_deref() != Some("S256") || !crate::authz::challenge_ok(&r.challenge) {
+        return fail("invalid_request", "PKCE with code_challenge_method=S256 is required");
+    }
+    if let Some(res) = &r.resource {
+        if !resource_ok(res) {
+            return fail("invalid_target", "Unknown resource; use this server's /mcp endpoint");
+        }
+    }
+    Ok(r)
+}
+
+/// GET /oauth2/authorize: sign in first if needed, then the consent page.
+fn authorize_get(req: &Request, query: &str) -> Resp {
+    let r = match authz_request(req, &|k| query_param(query, k)) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let Ok(Some(s)) = session(req) else {
+        let next = format!("/oauth2/authorize?{query}");
+        return redirect(&format!("/login?next={}", crate::util::form_encode(&next)), None);
+    };
+    consent_page(&s, &r)
+}
+
+fn consent_page(s: &Session, r: &AuthzReq) -> Resp {
+    let name = esc(&r.client.name);
+    let host = esc(&crate::authz::redirect_host(&r.redirect_uri));
+    page(
+        "Allow access",
+        &format!(
+            "<div class=\"wrap narrow consent\"><h1>Allow {name} to use your siar account?</h1>\
+<p><strong>{name}</strong> wants to use your siar workspace <code>{}</code> ({}). It will be able to:</p>\
+<ul class=\"limits\"><li>Schedule, publish, change and delete posts on your connected accounts</li><li>Read your accounts, posts, comments, messages and statistics</li>\
+<li>Reply to comments and send DMs, and set up auto-replies if your plan has them</li><li>Connect and disconnect accounts, and upload media</li></ul>\
+<p class=\"muted small\">After you choose, you go back to <strong>{host}</strong>. The name above is set by the app itself: continue only if you were adding siar in an app at {host}. You can revoke access at any time under Connected apps in the <a href=\"/dashboard#connected\">dashboard</a>.</p>\
+<form method=\"post\" action=\"/oauth2/authorize\">{}{}<div class=\"actions\"><button name=\"decision\" value=\"allow\">Allow</button><button class=\"ghost\" name=\"decision\" value=\"deny\">Deny</button></div></form></div>",
+            esc(&s.tenant),
+            esc(s.email.as_deref().unwrap_or("no email")),
+            csrf_field(s),
+            r.fields()
+        ),
+        true,
+    )
+    .with_header(header("x-frame-options", "DENY"))
+    .with_header(header("content-security-policy", "frame-ancestors 'none'"))
+    .with_header(header("cache-control", "no-store"))
+    .with_header(header("referrer-policy", "no-referrer"))
+}
+
+/// POST /oauth2/authorize: the consent form.
+fn authorize_post(req: &mut Request) -> Resp {
+    let body = read_body(req).unwrap_or_default();
+    let f = form(&body);
+    let Ok(Some(s)) = session(req) else { return redirect("/login", None) };
+    if !csrf_ok(req, &s, &f) {
+        return text("Invalid form token; go back to your AI app and connect again", 403);
+    }
+    let r = match authz_request(req, &|k| f.get(k).map(js_string)) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    if fstr(&f, "decision") != "allow" {
+        return r.back(vec![("error", "access_denied".into()), ("error_description", "The user denied access".into())]);
+    }
+    match control::with(|c| crate::authz::authorize(c, &s.tenant, &r.client.id, &r.redirect_uri, &r.challenge, r.resource.as_deref())) {
+        Ok(code) => r.back(vec![("code", code)]),
+        Err(e) => {
+            eprintln!("{} [oauth] authorize failed: {e}", iso(now()));
+            r.back(vec![("error", "server_error".into())])
+        }
+    }
+}
+
+/// Form or JSON body as a map.
+fn body_params(req: &Request, body: &[u8]) -> Map<String, Value> {
+    let json = hdr(req, "content-type").map(|c| c.contains("json")).unwrap_or(false);
+    if json {
+        serde_json::from_slice::<Value>(body)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default()
+    } else {
+        form(body)
+    }
+}
+
+/// client_id from the body, or from HTTP Basic credentials.
+fn client_id_of(req: &Request, p: &Map<String, Value>) -> String {
+    let id = fstr(p, "client_id");
+    if !id.is_empty() {
+        return id;
+    }
+    use base64::Engine;
+    hdr(req, "authorization")
+        .and_then(|h| h.strip_prefix("Basic ").map(|b| b.trim().to_string()))
+        .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok())
+        .and_then(|b| String::from_utf8(b).ok())
+        .and_then(|s| s.split(':').next().map(|x| decode(x)))
+        .unwrap_or_default()
+}
+
+/// POST /oauth2/token
+fn token_endpoint(req: &mut Request) -> Resp {
+    if !limits::allow(&format!("token:{}", client_ip(req)), 120, 60_000) {
+        return oauth_error(429, "slow_down", "Too many token requests; retry in a minute");
+    }
+    let body = match read_body(req) {
+        Ok(b) => b,
+        Err(_) => return oauth_error(413, "invalid_request", "Request body too large"),
+    };
+    let p = body_params(req, &body);
+    let client_id = client_id_of(req, &p);
+    if let Some(res) = p.get("resource").map(js_string).filter(|r| !r.is_empty()) {
+        if !resource_ok(&res) {
+            return oauth_error(400, "invalid_target", "Unknown resource; use this server's /mcp endpoint");
+        }
+    }
+    let r = match fstr(&p, "grant_type").as_str() {
+        "authorization_code" => {
+            if client_id.is_empty() {
+                return oauth_error(401, "invalid_client", "client_id is required");
+            }
+            control::with(|c| crate::authz::exchange_code(c, &client_id, &fstr(&p, "code"), &fstr(&p, "redirect_uri"), &fstr(&p, "code_verifier")))
+        }
+        "refresh_token" => control::with(|c| crate::authz::refresh(c, &client_id, &fstr(&p, "refresh_token"))),
+        _ => return oauth_error(400, "unsupported_grant_type", "Use authorization_code or refresh_token"),
+    };
+    match r {
+        Ok(Ok(t)) => no_store(json_resp(
+            &json!({ "access_token": t.access_token, "token_type": "Bearer", "expires_in": t.expires_in, "refresh_token": t.refresh_token, "scope": "mcp" }),
+            200,
+        )),
+        Ok(Err(e)) => oauth_error(400, e.error, &e.description),
+        Err(e) => {
+            eprintln!("{} [oauth] token: {e}", iso(now()));
+            oauth_error(500, "server_error", "Try again")
+        }
+    }
+}
+
+/// POST /oauth2/register (RFC 7591): public clients only.
+fn register_endpoint(req: &mut Request) -> Resp {
+    if !limits::allow(&format!("register:{}", client_ip(req)), 30, 3_600_000) {
+        return oauth_error(429, "slow_down", "Too many registrations from this address; retry later");
+    }
+    let body = match read_body(req) {
+        Ok(b) => b,
+        Err(_) => return oauth_error(413, "invalid_client_metadata", "Request body too large"),
+    };
+    let Ok(v) = serde_json::from_slice::<Value>(&body) else {
+        return oauth_error(400, "invalid_client_metadata", "Send the client metadata as JSON");
+    };
+    let uris: Vec<String> = v
+        .get("redirect_uris")
+        .and_then(|u| u.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let name = v.get("client_name").and_then(|n| n.as_str()).unwrap_or("");
+    match control::with(|c| crate::authz::register(c, name, &uris)) {
+        Ok(cl) => no_store(json_resp(
+            &json!({
+                "client_id": cl.id,
+                "client_id_issued_at": cl.created_at / 1000,
+                "client_name": cl.name,
+                "redirect_uris": cl.redirect_uris,
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+                "scope": "mcp",
+            }),
+            201,
+        )),
+        Err(e) => oauth_error(400, "invalid_redirect_uri", &e.to_string()),
+    }
+}
+
+/// POST /oauth2/revoke (RFC 7009): always 200.
+fn revoke_endpoint(req: &mut Request) -> Resp {
+    let body = read_body(req).unwrap_or_default();
+    let p = body_params(req, &body);
+    let token = fstr(&p, "token");
+    if !token.is_empty() {
+        if let Err(e) = control::with(|c| crate::authz::revoke_token(c, &token)) {
+            eprintln!("{} [oauth] revoke: {e}", iso(now()));
+        }
+    }
+    no_store(empty(200))
+}
+
 // ---------- MCP by API key ----------
 
 fn mcp(req: &mut Request, method: &Method) -> Resp {
@@ -596,12 +1000,17 @@ fn mcp(req: &mut Request, method: &Method) -> Resp {
             }
         })
         .unwrap_or_default();
-    let hit = control::find_api_key(&token).ok().flatten();
+    // An API key, or an OAuth access token (rate-limited per grant, like a key).
+    let hit = if token.starts_with(crate::authz::ACCESS_PREFIX) {
+        control::with(|c| crate::authz::find_access(c, &token)).ok().flatten().map(|h| control::KeyHit {
+            key_id: format!("grant:{}", h.grant_id),
+            tenant_id: h.tenant_id,
+        })
+    } else {
+        control::find_api_key(&token).ok().flatten()
+    };
     let Some(hit) = hit else {
-        return Response::from_string("Unauthorized")
-            .with_status_code(401)
-            .with_header(header("www-authenticate", "Bearer"))
-            .with_header(header("content-type", "text/plain;charset=utf-8"));
+        return mcp_unauthorized(!token.is_empty());
     };
     if *method == Method::Get {
         return Response::from_string("SSE stream not offered; POST JSON-RPC here")
@@ -814,21 +1223,29 @@ fn meta_webhook(req: &mut Request, tid: Option<&str>) -> Resp {
 
 // ---------- sign-in pages ----------
 
-fn login_page(req: &Request, error: Option<String>) -> Resp {
+fn login_page(req: &Request, error: Option<String>, next: Option<String>) -> Resp {
+    let next = next.and_then(|n| safe_next(&n));
     if session(req).ok().flatten().is_some() && error.is_none() {
-        return redirect("/dashboard", None);
+        return redirect(next.as_deref().unwrap_or("/dashboard"), None);
     }
+    let carry = next.as_ref().map(|n| format!("?next={}", crate::util::form_encode(n))).unwrap_or_default();
     let mut buttons = String::new();
     for p in LOGIN.iter() {
         if login_creds(p).is_some() {
             buttons.push_str(&format!(
-                "<a class=\"btn{}\" href=\"/auth/{}\">Sign in with {}</a>",
+                "<a class=\"btn{}\" href=\"/auth/{}{}\">Sign in with {}</a>",
                 if buttons.is_empty() { "" } else { " ghost" },
                 p.id,
+                esc(&carry),
                 p.name
             ));
         }
     }
+    let connecting = if next.is_some() {
+        "<p class=\"note ok\" role=\"status\">An AI app wants to connect to siar. Sign in first; you choose whether to allow it on the next page.</p>"
+    } else {
+        ""
+    };
     if buttons.is_empty() {
         buttons = "<p class=\"note warn\">Sign-in is not configured on this server yet.</p>".into();
     }
@@ -849,7 +1266,7 @@ fn login_page(req: &Request, error: Option<String>) -> Resp {
     page(
         "Sign in",
         &format!(
-            "<div class=\"wrap signin\"><section class=\"signin-box\" aria-labelledby=\"signin-title\"><h1 id=\"signin-title\">Sign in to siar</h1>{err}\
+            "<div class=\"wrap signin\"><section class=\"signin-box\" aria-labelledby=\"signin-title\"><h1 id=\"signin-title\">Sign in to siar</h1>{err}{connecting}\
 <p class=\"muted\">One account per person. Signing in for the first time creates your workspace.</p><div class=\"providers\">{buttons}</div>\
 <p class=\"muted small\">By signing in you accept the <a href=\"/terms\">terms</a> and the <a href=\"/privacy\">privacy policy</a>.</p></section>\
 <section class=\"next\" aria-labelledby=\"next-title\"><h2 id=\"next-title\">What happens next</h2><ol class=\"steps\">\
@@ -863,8 +1280,9 @@ fn login_page(req: &Request, error: Option<String>) -> Resp {
 
 fn login_callback(req: &Request, p: &LoginProvider, query: &str) -> Resp {
     if let Some(e) = query_param(query, "error") {
-        return login_page(req, Some(format!("Sign-in cancelled: {e}")));
+        return login_page(req, Some(format!("Sign-in cancelled: {e}")), None);
     }
+    let next = login_next(&query_param(query, "state").unwrap_or_default());
     let r = finish_login(
         p,
         &query_param(query, "code").unwrap_or_default(),
@@ -873,8 +1291,8 @@ fn login_callback(req: &Request, p: &LoginProvider, query: &str) -> Resp {
     .and_then(|(sub, email, name)| user_for(p.id, &sub, email.as_deref(), &name))
     .and_then(|u| new_session(&u));
     match r {
-        Ok(cookie) => redirect("/dashboard", Some(cookie)),
-        Err(e) => login_page(req, Some(e.to_string())),
+        Ok(cookie) => redirect(next.as_deref().unwrap_or("/dashboard"), Some(cookie)),
+        Err(e) => login_page(req, Some(e.to_string()), None),
     }
 }
 
@@ -956,6 +1374,7 @@ fn dashboard_body(s: &Session, query: &str, shown_key: Option<(String, String)>)
     let keys = control::list_api_keys(&s.tenant)?;
     let live_keys: Vec<&Value> = keys.iter().filter(|k| k["revoked"] != true).collect();
     let accounts = crate::accounts::list_accounts(None)?;
+    let grants = control::with(|c| crate::authz::grants(c, &s.tenant))?;
     let mut b = format!(
         "<div class=\"wrap\"><div class=\"dash-head\"><div><h1>Dashboard</h1><p>Signed in as {}. Workspace <code>{}</code>. Plan <span class=\"plan-tag\">{}</span></p></div>\
 <form class=\"inline\" method=\"post\" action=\"/logout\">{csrf}<button class=\"ghost small\">Sign out</button></form></div>",
@@ -987,16 +1406,22 @@ fn dashboard_body(s: &Session, query: &str, shown_key: Option<(String, String)>)
     }
 
     // First-run checklist, until all three are done.
-    let has_key = !live_keys.is_empty();
-    let used = live_keys.iter().any(|k| k["last_used_at"].as_i64().unwrap_or(0) > 0);
+    let has_key = !live_keys.is_empty() || !grants.is_empty();
+    let used = live_keys.iter().any(|k| k["last_used_at"].as_i64().unwrap_or(0) > 0) || grants.iter().any(|g| g.last_used_at.is_some());
     let has_acct = !accounts.is_empty();
     if !(has_key && used && has_acct) {
         let steps = [
-            (has_key, "Create an API key", "Your agent signs in to siar with it.", "#keys", "Create a key"),
+            (
+                has_key,
+                "Create an API key",
+                "Your agent signs in to siar with it. Claude.ai and ChatGPT need no key: add siar as a connector there.",
+                "#keys",
+                "Create a key",
+            ),
             (
                 used,
                 "Add siar to your agent",
-                "Paste one snippet into Claude Code, Cursor, Codex or another MCP client. This turns green after your agent's first call.",
+                "Paste one snippet into Claude Code, Cursor, Codex or another MCP client, or add the connector in Claude.ai or ChatGPT. This turns green after your agent's first call.",
                 "/docs#agents",
                 "Get the snippet",
             ),
@@ -1049,7 +1474,7 @@ fn dashboard_body(s: &Session, query: &str, shown_key: Option<(String, String)>)
         plan.max_upload_mb,
         plan.api_per_minute
     ));
-    b.push_str("<ul class=\"jump\" aria-label=\"Sections\"><li><a href=\"#keys\">API keys</a></li><li><a href=\"#accounts\">Accounts</a></li><li><a href=\"#apps\">Your platform apps</a></li><li><a href=\"#billing\">Billing</a></li><li><a href=\"#delete\">Delete account</a></li></ul>");
+    b.push_str("<ul class=\"jump\" aria-label=\"Sections\"><li><a href=\"#keys\">API keys</a></li><li><a href=\"#connected\">Connected apps</a></li><li><a href=\"#accounts\">Accounts</a></li><li><a href=\"#apps\">Your platform apps</a></li><li><a href=\"#billing\">Billing</a></li><li><a href=\"#delete\">Delete account</a></li></ul>");
 
     // API keys
     b.push_str(&format!(
@@ -1077,6 +1502,30 @@ fn dashboard_body(s: &Session, query: &str, shown_key: Option<(String, String)>)
     b.push_str(&format!(
         "<form class=\"keyform\" method=\"post\" action=\"/dashboard/keys\">{csrf}<div><label for=\"keyname\">New key name</label><input id=\"keyname\" name=\"name\" placeholder=\"Claude Code on my laptop\" maxlength=\"60\"></div><button>Create key</button></form></section>"
     ));
+
+    // Connected apps (OAuth grants from Claude.ai, ChatGPT and other connectors)
+    b.push_str(&format!(
+        "<section class=\"dsec\" id=\"connected\" aria-labelledby=\"conn-title\"><h2 id=\"conn-title\">Connected apps</h2><p class=\"lede\">Apps you allowed to use siar by signing in, such as a Claude.ai or ChatGPT connector for <code>{}</code>. Each acts like an API key of this workspace. Revoke one to sign it out at once.</p>",
+        esc(&mcp_url)
+    ));
+    if grants.is_empty() {
+        b.push_str("<div class=\"empty\"><strong>No connected apps.</strong> In Claude.ai or ChatGPT, add a custom connector with the URL above; it brings you here to allow it.</div>");
+    } else {
+        b.push_str("<div class=\"table-scroll\"><table class=\"data stack\"><thead><tr><th>App</th><th>Returns to</th><th>Allowed</th><th>Last used</th><th><span class=\"sr-only\">Actions</span></th></tr></thead><tbody>");
+        for g in &grants {
+            b.push_str(&format!(
+                "<tr><td data-l=\"App\">{}</td><td data-l=\"Returns to\"><code>{}</code></td><td data-l=\"Allowed\">{}</td><td data-l=\"Last used\">{}</td><td><form class=\"inline\" method=\"post\" action=\"/dashboard/connected/{}/revoke\">{csrf}<button class=\"ghost small\" aria-label=\"Revoke {}\">Revoke</button></form></td></tr>",
+                esc(&g.client_name),
+                esc(&crate::authz::redirect_host(&g.redirect_uri)),
+                fmt_ts(Some(g.created_at)),
+                if g.last_used_at.is_some() { fmt_ts(g.last_used_at) } else { "Never".into() },
+                esc(&g.id),
+                esc(&g.client_name)
+            ));
+        }
+        b.push_str("</tbody></table></div>");
+    }
+    b.push_str("</section>");
 
     // Accounts
     b.push_str("<section class=\"dsec\" id=\"accounts\" aria-labelledby=\"acc-title\"><h2 id=\"acc-title\">Connected accounts</h2>");
@@ -1458,6 +1907,13 @@ fn dashboard_post(req: &mut Request, parts: &[&str]) -> Resp {
             Err(e) => back(Err(e)),
         },
         ["keys", id, "revoke"] => back(control::revoke_api_key(&s.tenant, id).map(|_| "Key revoked".to_string())),
+        ["connected", id, "revoke"] => back(control::with(|c| crate::authz::revoke_grant(c, &s.tenant, id)).and_then(|done| {
+            if done {
+                Ok("App signed out. It needs your permission again to use siar.".to_string())
+            } else {
+                Err(Error::Msg("Unknown app".into()))
+            }
+        })),
         ["accounts", id, "disconnect"] => back(
             in_tenant(&s.tenant, || tool("disconnect_account", json!({ "account_id": id })).map_err(Error::Msg))
                 .map(|v| format!("Disconnected {}", js_string(&v["disconnected"]))),

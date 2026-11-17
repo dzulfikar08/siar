@@ -9,7 +9,7 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::util::{bail, hex, now, random_bytes, Error, Obj, Result};
 
-const MIGRATIONS: [&str; 3] = [
+const MIGRATIONS: [&str; 4] = [
     "CREATE TABLE users (
      id TEXT PRIMARY KEY,
      email TEXT,
@@ -174,6 +174,44 @@ const MIGRATIONS: [&str; 3] = [
     // 3: plan tiers (a tier groups its monthly and yearly plans) and plan features.
     "ALTER TABLE plans ADD COLUMN tier TEXT NOT NULL DEFAULT '';
    ALTER TABLE plans ADD COLUMN features TEXT NOT NULL DEFAULT '';",
+    // 4: OAuth for /mcp (Claude.ai and ChatGPT connectors): registered clients, a grant per
+    //    tenant and client ("Connected apps"), one-time codes and tokens (hashes only), and the
+    //    page to return to after sign-in.
+    "CREATE TABLE oauth_clients (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL,
+     redirect_uris TEXT NOT NULL,
+     created_at INTEGER NOT NULL
+   );
+   CREATE TABLE oauth_grants (
+     id TEXT PRIMARY KEY,
+     tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+     client_id TEXT NOT NULL REFERENCES oauth_clients(id) ON DELETE CASCADE,
+     redirect_uri TEXT NOT NULL,
+     created_at INTEGER NOT NULL,
+     last_used_at INTEGER,
+     revoked_at INTEGER
+   );
+   CREATE INDEX oauth_grants_tenant ON oauth_grants (tenant_id);
+   CREATE TABLE oauth_codes (
+     hash TEXT PRIMARY KEY,
+     grant_id TEXT NOT NULL REFERENCES oauth_grants(id) ON DELETE CASCADE,
+     redirect_uri TEXT NOT NULL,
+     challenge TEXT NOT NULL,
+     resource TEXT,
+     expires_at INTEGER NOT NULL,
+     used_at INTEGER
+   );
+   CREATE TABLE oauth_tokens (
+     hash TEXT PRIMARY KEY,
+     grant_id TEXT NOT NULL REFERENCES oauth_grants(id) ON DELETE CASCADE,
+     kind TEXT NOT NULL,
+     expires_at INTEGER NOT NULL,
+     created_at INTEGER NOT NULL,
+     used_at INTEGER
+   );
+   CREATE INDEX oauth_tokens_grant ON oauth_tokens (grant_id);
+   ALTER TABLE login_states ADD COLUMN next TEXT;",
 ];
 
 static CONTROL: OnceLock<Mutex<Connection>> = OnceLock::new();

@@ -2,6 +2,7 @@
 //! Bun version. Same database, vault and env vars, so either binary can run on the same data.
 
 pub mod accounts;
+pub mod authz;
 pub mod automations;
 pub mod billing;
 pub mod config;

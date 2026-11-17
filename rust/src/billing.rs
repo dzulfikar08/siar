@@ -48,10 +48,17 @@ pub fn polar_checkout(tenant_id: &str, plan: &Plan, email: Option<&str>) -> Resu
         "metadata": { "tenant_id": tenant_id, "plan_id": plan.id },
         "success_url": format!("{}/dashboard?checkout=polar#billing", config().public_url),
     });
+    let plain = body.clone();
     if let Some(e) = email {
         body["customer_email"] = Value::from(e);
     }
-    let r = net::post(format!("{}/v1/checkouts/", polar_api())).bearer(&token).json(body).get_json()?;
+    let r = match net::post(format!("{}/v1/checkouts/", polar_api())).bearer(&token).json(body).get_json() {
+        // Polar refuses addresses whose domain takes no mail; the customer types one at checkout.
+        Err(Error::Http { status: 422, body: b, .. }) if email.is_some() && b.contains("customer_email") => {
+            net::post(format!("{}/v1/checkouts/", polar_api())).bearer(&token).json(plain).get_json()?
+        }
+        r => r?,
+    };
     match r.get("url").and_then(|u| u.as_str()) {
         Some(u) => Ok(u.to_string()),
         None => bail!("Polar returned no checkout URL"),

@@ -1,5 +1,28 @@
 <div class="tabs">
 <div class="tablist" aria-label="Agent"></div>
+<div class="tabpanel" data-tab="Claude.ai">
+<h3 class="panel-name">Claude.ai</h3>
+<p>No API key needed: Claude signs in to siar for you.</p>
+<ol class="howto">
+<li>In Claude, open <strong>Customize</strong>, then <strong>Connectors</strong>.</li>
+<li>Choose <strong>+ Add</strong>, then <strong>Add custom connector</strong>.</li>
+<li>Name it <code>siar</code> and paste this URL, then choose <strong>Continue</strong> and keep the suggested sign-in settings:</li>
+</ol>
+<div class="code"><pre data-what="connector URL"><code>{{mcp_url}}</code></pre></div>
+<p>Claude opens siar in a new tab. Sign in with GitHub or Google and choose <strong>Allow</strong>. In a chat, turn siar on from the <strong>+</strong> menu under Connectors.</p>
+<p class="hint">On Team and Enterprise plans an owner adds the connector under Organization settings, Connectors; each member then connects it from Customize, Connectors. The connector also shows up in Claude Desktop and the mobile apps. To sign it out, revoke it under Connected apps in your siar dashboard.</p>
+</div>
+<div class="tabpanel" data-tab="ChatGPT">
+<h3 class="panel-name">ChatGPT</h3>
+<p>No API key needed: ChatGPT signs in to siar for you. Custom MCP servers need developer mode, which OpenAI offers on paid plans; on Plus and Pro, OpenAI may limit custom connectors to read-only tools.</p>
+<ol class="howto">
+<li>Turn on <strong>Developer mode</strong> in ChatGPT's settings (under Apps, Advanced settings; OpenAI moves it from time to time).</li>
+<li>Create an app or connector for an MCP server: name it <code>siar</code>, paste this URL and choose <strong>OAuth</strong> as the authentication:</li>
+</ol>
+<div class="code"><pre data-what="connector URL"><code>{{mcp_url}}</code></pre></div>
+<p>ChatGPT opens siar to sign in; choose <strong>Allow</strong>. Then add siar to a chat from the <strong>+</strong> menu under developer mode.</p>
+<p class="hint">Menu names follow OpenAI's help article "Developer mode and MCP apps in ChatGPT". From the terminal, Codex uses an API key instead: see the Codex tab.</p>
+</div>
 <div class="tabpanel" data-tab="Claude Code">
 <h3 class="panel-name">Claude Code</h3>
 <p>Run this once in a terminal. Claude Code picks siar up in every new session.</p>
@@ -19,7 +42,7 @@
     }
   }
 }</code></pre></div>
-<p class="hint">Claude.ai in the browser adds custom connectors through an OAuth sign-in, and siar uses API keys, so connect from Claude Desktop or Claude Code for now.</p>
+<p class="hint">Simpler: add siar as a connector in Claude.ai (see the Claude.ai tab). Connectors you add there appear in Claude Desktop too, with no key in a config file.</p>
 </div>
 <div class="tabpanel" data-tab="Cursor">
 <h3 class="panel-name">Cursor</h3>
@@ -41,11 +64,6 @@ url = "{{mcp_url}}"
 bearer_token_env_var = "SIAR_API_KEY"</code></pre></div>
 <div class="code"><pre data-what="export command"><code>export SIAR_API_KEY={{key}}</code></pre></div>
 </div>
-<div class="tabpanel" data-tab="ChatGPT">
-<h3 class="panel-name">ChatGPT</h3>
-<p>ChatGPT connects to MCP servers through its own OAuth sign-in. siar authenticates agents with an API key, so ChatGPT cannot connect to it directly yet.</p>
-<p>From OpenAI's side, use <strong>Codex</strong> (the CLI or the IDE extension): it reads the same key, and the Codex tab has the config.</p>
-</div>
 <div class="tabpanel" data-tab="Windsurf">
 <h3 class="panel-name">Windsurf</h3>
 <p>In <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
@@ -60,7 +78,7 @@ bearer_token_env_var = "SIAR_API_KEY"</code></pre></div>
 </div>
 <div class="tabpanel" data-tab="Other clients">
 <h3 class="panel-name">Other MCP clients</h3>
-<p>Use the Streamable HTTP transport: POST JSON-RPC to the endpoint below with the header <code>Authorization: Bearer {{key}}</code>.</p>
+<p>Use the Streamable HTTP transport: POST JSON-RPC to the endpoint below with the header <code>Authorization: Bearer {{key}}</code>. Clients that support MCP authorization can sign in with OAuth instead of a key: siar answers with a 401 that points to <code>/.well-known/oauth-protected-resource</code>, and supports dynamic client registration and client metadata documents with PKCE.</p>
 <div class="code"><pre data-what="endpoint"><code>{{mcp_url}}</code></pre></div>
 </div>
 </div>
