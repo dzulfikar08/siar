@@ -75,6 +75,7 @@ jobs:
         run: parity/run.sh out/siar
       - name: hosted memory with 1, 50 and 500 tenants
         run: |
+          set -o pipefail
           parity/tenants-rss.sh out/siar | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:

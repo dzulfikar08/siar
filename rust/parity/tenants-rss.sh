@@ -12,7 +12,7 @@ run() {
   local pid=$!
   for i in $(seq 50); do curl -sf localhost:$port/health >/dev/null && break; sleep 0.1; done
   local keys=() n=0
-  for i in $(seq 500); do keys+=("$("$BIN" tenant create "t$i" | sed -E 's/.*"api_key":"([^"]+)".*/\1/')")"); done
+  for i in $(seq 500); do keys+=("$("$BIN" tenant create "t$i" | jq -r .api_key)"); done
   echo "## SIAR_TENANT_CACHE=$cache"
   echo "idle, no tenant opened: $(grep -E 'VmRSS' /proc/$pid/status | tr -s ' \t' ' ')"
   for upto in 1 50 500; do
