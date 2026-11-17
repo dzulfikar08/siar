@@ -113,15 +113,39 @@ pub fn handle_polar(id: &str, timestamp: &str, signature: &str, body: &[u8]) -> 
     }
     let ev: Value = serde_json::from_slice(body)?;
     let kind = ev.get("type").and_then(|t| t.as_str()).unwrap_or("").to_string();
-    if !control::first_event("polar", id, &kind)? {
-        return Ok(Hook::Duplicate);
-    }
-    let r = apply_polar(&kind, ev.get("data").unwrap_or(&Value::Null));
-    if r.is_err() {
-        // Let Polar retry.
-        control::forget_event("polar", id)?;
-    }
+    let d = ev.get("data").unwrap_or(&Value::Null);
+    let field = |p: &str| d.pointer(p).and_then(|v| v.as_str()).filter(|v| !v.is_empty()).unwrap_or("-").to_string();
+    let sub = field("/id");
+    let tenant = d
+        .pointer("/metadata/tenant_id")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| field("/customer/external_id"));
+    let r = if control::first_event("polar", id, &kind)? {
+        let r = apply_polar(&kind, d);
+        if r.is_err() {
+            // Let Polar retry.
+            control::forget_event("polar", id)?;
+        }
+        r
+    } else {
+        Ok(Hook::Duplicate)
+    };
+    log_hook("polar webhook", &kind, &sub, &tenant, &r);
     r
+}
+
+/// One journal line per accepted webhook: event, object id, tenant and outcome (no payload).
+fn log_hook(source: &str, kind: &str, object: &str, tenant: &str, r: &Result<Hook>) {
+    let outcome = match r {
+        Ok(Hook::Applied) => "applied",
+        Ok(Hook::Duplicate) => "duplicate",
+        Ok(Hook::Ignored) => "ignored",
+        // The HTTP handler logs errors.
+        Err(_) => return,
+    };
+    eprintln!("{} [billing] {source} verified: {kind} {object} tenant={tenant} -> {outcome}", iso(now()));
 }
 
 fn apply_polar(kind: &str, d: &Value) -> Result<Hook> {
@@ -473,14 +497,21 @@ pub fn handle_doku(client_id: &str, request_id: &str, timestamp: &str, signature
     let ev: Value = serde_json::from_slice(body)?;
     let invoice = ev.pointer("/order/invoice_number").map(js_string).unwrap_or_default();
     let status = ev.pointer("/transaction/status").map(js_string).unwrap_or_default();
+    let tenant: String = control::with(|c| {
+        Ok(c.query_row("SELECT tenant_id FROM invoices WHERE invoice_number = ?", [&invoice], |r| r.get(0)).optional()?)
+    })?
+    .unwrap_or_else(|| "-".into());
     // Request-Id identifies the notification; DOKU resends it with the same id.
-    if !control::first_event("doku", &format!("{request_id}:{invoice}:{status}"), &status)? {
-        return Ok(Hook::Duplicate);
-    }
-    let r = apply_doku(&invoice, &status, ev.pointer("/order/amount"));
-    if r.is_err() {
-        control::forget_event("doku", &format!("{request_id}:{invoice}:{status}"))?;
-    }
+    let r = if control::first_event("doku", &format!("{request_id}:{invoice}:{status}"), &status)? {
+        let r = apply_doku(&invoice, &status, ev.pointer("/order/amount"));
+        if r.is_err() {
+            control::forget_event("doku", &format!("{request_id}:{invoice}:{status}"))?;
+        }
+        r
+    } else {
+        Ok(Hook::Duplicate)
+    };
+    log_hook("doku notification", &status, &invoice, &tenant, &r);
     r
 }
 

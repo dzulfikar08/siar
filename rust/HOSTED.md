@@ -5,7 +5,7 @@ The same binary runs in two modes:
 - **Single-tenant** (default): one database `data/siar.sqlite`, `/mcp` protected by `SIAR_API_TOKEN`.
   Self-hosters and the `siar-rs` trial use this; nothing below applies to them.
 - **Hosted** (`SIAR_MODE=hosted`): many customers ("tenants") in one process, with the web pages,
-  sign-in, dashboard and payments. Intended for `https://app.siar.diatur.com`.
+  sign-in, dashboard and payments. Intended for `https://app-siar.diatur.com`.
 
 ## How tenancy works
 
@@ -32,7 +32,7 @@ The same binary runs in two modes:
 | `SIAR_MODE=hosted` | set by the unit file; required |
 | `SIAR_DATA_DIR` | set by the unit file (`/opt/siar-hosted/data`) |
 | `SIAR_VAULT_KEY` | master key, `siar keygen`; new, never the production or trial key |
-| `SIAR_PUBLIC_URL` | `https://app.siar.diatur.com` (no trailing slash) |
+| `SIAR_PUBLIC_URL` | `https://app-siar.diatur.com` (no trailing slash) |
 | `SIAR_PORT`, `SIAR_HOST` | the unit defaults to `8789` and `127.0.0.1` (behind the Cloudflare Tunnel); the env file may override |
 | `SIAR_TRUST_PROXY=1` | take the client IP from `CF-Connecting-IP` for sign-in rate limits |
 | `SIAR_OPERATOR`, `SIAR_OPERATOR_LOCATION`, `SIAR_CONTACT` | default operator is "PT Joyo Digitama Solusi", "Indonesia"; set the contact email |
@@ -62,7 +62,8 @@ sudo cp deploy/siar-hosted.service /etc/systemd/system/ && sudo systemctl daemon
 sudo systemctl enable --now siar-hosted
 ```
 
-Route `app.siar.diatur.com` to the port in the Cloudflare Tunnel. The first start creates
+Route `app-siar.diatur.com` to the port in the Cloudflare Tunnel. Keep the hostname one level below
+the zone: Cloudflare's free Universal SSL certificate covers `*.diatur.com`, not `*.siar.diatur.com`. The first start creates
 `control.sqlite` with a `free` plan (2 accounts, 30 posts/month, 200 MB storage, 25 MB uploads,
 60 requests/min) as the default plan.
 
@@ -79,6 +80,8 @@ Then `siar-admin plan list` and so on:
 - `siar tenant create <name>`: a workspace without a sign-in user and its first API key (for tests)
 - `siar key create <tenant> <name>`: another key
 - `siar plan list`, `siar plan put '<json>'`, `siar plan default <id>`
+  (a line of `plan list` can be edited and passed back to `plan put`; `polar_price_cents` is computed
+  and ignored on input)
 
 ## Plans
 
@@ -157,13 +160,15 @@ agreement (`UPDATE doku_fees SET percent = …, flat = … WHERE method = …`),
 ## Payments
 
 Only verified webhooks change subscriptions; the redirect back from checkout only shows a note.
+Each accepted webhook logs one line: event, subscription id or invoice, tenant id and the outcome
+(`applied`, `duplicate`, `ignored`); rejected ones log the reason.
 Webhook event ids are stored, so retries and duplicates apply once.
 
 **Polar** (USD subscriptions, merchant of record):
 1. Create one recurring monthly product per paid plan; put its id in `polar_product_id`.
 2. Create an organization access token with `checkouts:write` and `subscriptions:write` as
    `POLAR_ACCESS_TOKEN`.
-3. Add a webhook endpoint `https://app.siar.diatur.com/billing/polar/webhook` with the events
+3. Add a webhook endpoint `https://app-siar.diatur.com/billing/polar/webhook` with the events
    `subscription.created`, `subscription.active`, `subscription.updated`, `subscription.canceled`,
    `subscription.uncanceled`, `subscription.revoked`; its secret is `POLAR_WEBHOOK_SECRET`. Both
    secret formats work (Standard Webhooks `whsec_…`, and the older Polar HMAC secrets).
@@ -188,11 +193,11 @@ invoice.
 
 ## Sign-in apps
 
-- **GitHub**: Settings → Developer settings → OAuth Apps → New. Homepage `https://app.siar.diatur.com`,
-  callback `https://app.siar.diatur.com/auth/github/callback`. Scopes used: `read:user user:email`
+- **GitHub**: Settings → Developer settings → OAuth Apps → New. Homepage `https://app-siar.diatur.com`,
+  callback `https://app-siar.diatur.com/auth/github/callback`. Scopes used: `read:user user:email`
   (only a verified primary email is linked).
 - **Google**: Google Cloud console → APIs & Services → Credentials → OAuth client ID (Web). Redirect
-  URI `https://app.siar.diatur.com/auth/google/callback`. Scopes: `openid email profile` (no
+  URI `https://app-siar.diatur.com/auth/google/callback`. Scopes: `openid email profile` (no
   verification needed for these). Use a different client from the YouTube posting app.
 
 GitHub and Google sign-ins are linked to one account only by an email the provider marks
@@ -211,7 +216,7 @@ id and secret of its own developer app per provider prefix (`INSTAGRAM`, `FACEBO
 `LINKEDIN`, `LINKEDIN_PAGE`, `GOOGLE`, `X`, `TIKTOK`, `PINTEREST`, `REDDIT`, `INSTAGRAM_LOGIN`),
 plus the Facebook Login configuration id for `INSTAGRAM`. The app's redirect URI is per tenant:
 
-    https://app.siar.diatur.com/oauth/t/<tenant id>/<platform>/callback
+    https://app-siar.diatur.com/oauth/t/<tenant id>/<platform>/callback
 
 It is fixed for the tenant, so it can be registered in the tenant's app once; the dashboard shows
 it. Meta webhooks for a tenant's own app go to `/webhooks/t/<tenant id>/meta` (verified with that
@@ -219,10 +224,10 @@ app's secret; optional verify token saved with the app).
 
 **Phase 2, shared apps.** When Meta, Google or LinkedIn approve siar's own apps:
 1. Put the credentials in the env as usual (`THREADS_CLIENT_ID`, `THREADS_CLIENT_SECRET`, …,
-   `INSTAGRAM_CONFIG_ID`) and register `https://app.siar.diatur.com/oauth/<platform>/callback`
+   `INSTAGRAM_CONFIG_ID`) and register `https://app-siar.diatur.com/oauth/<platform>/callback`
    in each app (the tenant travels in the OAuth state, kept in `control.sqlite`).
 2. Switch the prefix on: `SIAR_SHARED_APPS=THREADS,INSTAGRAM,…`, then restart.
-3. For the shared Meta app, set its webhook to `https://app.siar.diatur.com/webhooks/meta` with
+3. For the shared Meta app, set its webhook to `https://app-siar.diatur.com/webhooks/meta` with
    `SIAR_META_VERIFY_TOKEN`; events are routed to tenants by the connected account id.
 
 A tenant's own app always wins over the shared one. Credential platforms (Bluesky, Mastodon,

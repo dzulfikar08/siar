@@ -428,10 +428,12 @@ pub struct Plan {
     pub public: bool,
     /// Billing interval of the USD (Polar) price: "month" or "year".
     pub interval: String,
+    /// Order on the pricing page.
+    pub sort: i64,
 }
 
 const PLAN_COLS: &str =
-    "id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, interval";
+    "id, name, description, price_usd_cents, polar_product_id, max_accounts, max_posts_month, max_storage_mb, max_upload_mb, api_per_minute, public, interval, sort";
 
 fn plan_row(r: &rusqlite::Row) -> rusqlite::Result<Plan> {
     Ok(Plan {
@@ -447,6 +449,7 @@ fn plan_row(r: &rusqlite::Row) -> rusqlite::Result<Plan> {
         api_per_minute: r.get(9)?,
         public: r.get::<_, i64>(10)? != 0,
         interval: r.get(11)?,
+        sort: r.get(12)?,
     })
 }
 
@@ -495,7 +498,7 @@ pub fn put_plan(v: &Value) -> Result<()> {
                 i("max_storage_mb", 200),
                 i("max_upload_mb", 25),
                 i("api_per_minute", 60),
-                i("public", 1),
+                v.get("public").and_then(|x| x.as_bool().map(i64::from).or_else(|| x.as_i64())).unwrap_or(1),
                 i("sort", 0),
                 s("interval").filter(|x| x == "year").unwrap_or_else(|| "month".into())
             ],
