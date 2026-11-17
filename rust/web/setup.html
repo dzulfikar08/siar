@@ -1,0 +1,66 @@
+<div class="tabs">
+<div class="tablist" aria-label="Agent"></div>
+<div class="tabpanel" data-tab="Claude Code">
+<h3 class="panel-name">Claude Code</h3>
+<p>Run this once in a terminal. Claude Code picks siar up in every new session.</p>
+<div class="code"><pre data-what="Claude Code command"><code>claude mcp add --transport http siar {{mcp_url}} \
+  --header "Authorization: Bearer {{key}}"</code></pre></div>
+</div>
+<div class="tabpanel" data-tab="Claude Desktop">
+<h3 class="panel-name">Claude Desktop</h3>
+<p>In Claude Desktop, open Settings, then Developer, then Edit Config, and add siar to <code>claude_desktop_config.json</code>. It runs through <code>mcp-remote</code>, so Node.js must be installed. Restart Claude Desktop afterwards.</p>
+<div class="code"><pre data-what="Claude Desktop config"><code>{
+  "mcpServers": {
+    "siar": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "{{mcp_url}}",
+               "--header", "Authorization:${SIAR_AUTH}"],
+      "env": { "SIAR_AUTH": "Bearer {{key}}" }
+    }
+  }
+}</code></pre></div>
+<p class="hint">Claude.ai in the browser adds custom connectors through an OAuth sign-in, and siar uses API keys, so connect from Claude Desktop or Claude Code for now.</p>
+</div>
+<div class="tabpanel" data-tab="Cursor">
+<h3 class="panel-name">Cursor</h3>
+<p>In <code>~/.cursor/mcp.json</code>, or <code>.cursor/mcp.json</code> inside a project:</p>
+<div class="code"><pre data-what="Cursor config"><code>{
+  "mcpServers": {
+    "siar": {
+      "url": "{{mcp_url}}",
+      "headers": { "Authorization": "Bearer {{key}}" }
+    }
+  }
+}</code></pre></div>
+</div>
+<div class="tabpanel" data-tab="Codex">
+<h3 class="panel-name">Codex</h3>
+<p>In <code>~/.codex/config.toml</code>, with the key in an environment variable:</p>
+<div class="code"><pre data-what="Codex config"><code>[mcp_servers.siar]
+url = "{{mcp_url}}"
+bearer_token_env_var = "SIAR_API_KEY"</code></pre></div>
+<div class="code"><pre data-what="export command"><code>export SIAR_API_KEY={{key}}</code></pre></div>
+</div>
+<div class="tabpanel" data-tab="ChatGPT">
+<h3 class="panel-name">ChatGPT</h3>
+<p>ChatGPT connects to MCP servers through its own OAuth sign-in. siar authenticates agents with an API key, so ChatGPT cannot connect to it directly yet.</p>
+<p>From OpenAI's side, use <strong>Codex</strong> (the CLI or the IDE extension): it reads the same key, and the Codex tab has the config.</p>
+</div>
+<div class="tabpanel" data-tab="Windsurf">
+<h3 class="panel-name">Windsurf</h3>
+<p>In <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
+<div class="code"><pre data-what="Windsurf config"><code>{
+  "mcpServers": {
+    "siar": {
+      "serverUrl": "{{mcp_url}}",
+      "headers": { "Authorization": "Bearer {{key}}" }
+    }
+  }
+}</code></pre></div>
+</div>
+<div class="tabpanel" data-tab="Other clients">
+<h3 class="panel-name">Other MCP clients</h3>
+<p>Use the Streamable HTTP transport: POST JSON-RPC to the endpoint below with the header <code>Authorization: Bearer {{key}}</code>.</p>
+<div class="code"><pre data-what="endpoint"><code>{{mcp_url}}</code></pre></div>
+</div>
+</div>

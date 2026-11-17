@@ -1,0 +1,49 @@
+<div class="wrap docs">
+<nav class="toc" aria-label="On this page">
+<strong>On this page</strong>
+<ol>
+<li><a href="#agents">Add siar to your agent</a></li>
+<li><a href="#brief">Paste this to your agent</a></li>
+<li><a href="#accounts">Connecting accounts</a></li>
+<li><a href="#limits">Limits</a></li>
+<li><a href="#tools">All tools</a></li>
+</ol>
+</nav>
+<article class="doc">
+<section>
+<h1>Connect your agent</h1>
+<p class="lead">siar speaks the Model Context Protocol over HTTP. Create an API key in the <a href="/dashboard#keys">dashboard</a>, then add siar to your agent with the snippet below.</p>
+<div class="endpoint"><span class="muted small">MCP endpoint</span><code>{{mcp_url}}</code></div>
+</section>
+<section id="agents">
+<h2>Add siar to your agent</h2>
+<p>Replace <code>YOUR_SIAR_KEY</code> with your key. Keys are shown once when you create them; create a new one if you lose it.</p>
+{{setup}}
+</section>
+<section id="brief">
+<h2>Paste this to your agent</h2>
+<p>Agents read each tool's description, but a short brief up front saves round trips: which tools come first, and when to ask you before posting.</p>
+<div class="code"><pre class="wrap-lines" data-what="agent brief"><code>{{prompt}}</code></pre></div>
+</section>
+<section id="accounts">
+<h2>Connecting accounts</h2>
+<p>Connect accounts in the <a href="/dashboard#accounts">dashboard</a>, or ask your agent to call <code>connect_account</code>: OAuth platforms return a link to open, credential platforms (Bluesky, Mastodon, Telegram, Discord, Slack, Nostr, WordPress and others) take their fields directly.</p>
+<p>Until siar's shared apps are approved by Meta, Google and LinkedIn, OAuth platforms need your own developer app: save its client id and secret under <a href="/dashboard#apps">Your own platform apps</a> and register the redirect URI shown there. The setup guides cover each console step by step; they are written for self-hosting, so use the redirect URI from your dashboard instead of the one they build from <code>SIAR_PUBLIC_URL</code>.</p>
+<ul>
+<li><a href="https://github.com/dzulfikar08/siar/blob/main/docs/setup/meta.md">Meta: Instagram, Threads, Facebook Pages</a></li>
+<li><a href="https://github.com/dzulfikar08/siar/blob/main/docs/setup/google.md">Google: YouTube, Business Profile</a></li>
+<li><a href="https://github.com/dzulfikar08/siar/blob/main/docs/setup/linkedin.md">LinkedIn</a></li>
+<li><a href="https://github.com/dzulfikar08/siar/blob/main/docs/setup/other.md">Other platforms</a></li>
+</ul>
+</section>
+<section id="limits">
+<h2>Limits</h2>
+<p>Your plan sets how many accounts you can connect, how many posts per month you can schedule or publish, and how much media you can stage. Over a limit, tools return an error that says which limit and how to raise it. See <a href="/pricing">Pricing</a>.</p>
+</section>
+<section id="tools">
+<h2>All tools</h2>
+<p>What your agent sees, with the first line of each description. <code>tools/list</code> returns the full schemas.</p>
+{{tools}}
+</section>
+</article>
+</div>

@@ -1,0 +1,118 @@
+<section class="hero" aria-labelledby="hero-title"><div class="wrap">
+<div>
+<h1 id="hero-title">The social media scheduler your AI agent runs.</h1>
+<p class="sub">siar is an MCP server. Tell <strong>Claude, Cursor or Codex</strong> what to post: it drafts, checks each platform's rules, schedules for the hours your posts do best, and answers comments while you keep building.</p>
+<div class="cta-row">
+<a class="btn" href="{{start_href}}">{{start_label}}</a>
+<a class="btn ghost" href="#setup">Set up your agent</a>
+</div>
+<ul class="facts">
+<li><a href="https://github.com/dzulfikar08/siar">Open source, AGPL-3.0</a></li>
+<li>Self-host for free</li>
+<li>One Rust binary</li>
+</ul>
+</div>
+
+<figure class="session play" aria-label="Example session: an agent schedules a week of posts with siar">
+<figcaption class="session-head"><span>Example session in Claude Code</span><span>sample account</span></figcaption>
+<ol>
+<li class="say"><span class="who">You</span>Schedule this week's three posts from posts.md to Threads and Instagram at our best times.</li>
+<li class="call"><span class="fn">list_accounts</span><span class="args">{}</span><span class="res">2 accounts: Threads and Instagram, @kopilab</span></li>
+<li class="call"><span class="fn">best_times</span><span class="args">{"account_id": "acc_81d2e0b4"}</span><span class="res">Tue, Thu, Sat 19:00 to 21:00: 1.6x usual reach (52 posts)</span></li>
+<li class="call"><span class="fn">stage_media</span><span class="args">{"url": "https://kopilab.id/img/roast-day.jpg"}</span><span class="res">3 images staged</span></li>
+<li class="call"><span class="fn">validate_post</span><span class="args">{"targets": ["acc_3f9c71a2", "acc_81d2e0b4"], ...}</span><span class="res">3 of 3 posts valid on both accounts</span></li>
+<li class="call"><span class="fn">schedule_post</span><span class="args">{"at": "2026-11-19T19:00:00+07:00", ...}</span><span class="res">3 posts scheduled</span></li>
+<li class="say reply"><span class="who">Claude</span><p>Done. Your evening slots do best, so they go out at 19:00:</p>
+<table class="rundown"><tbody>
+<tr><td>Thu 19:00</td><td class="where">Threads, IG</td><td>Roast day: the new Gayo batch</td></tr>
+<tr><td>Sat 19:00</td><td class="where">Threads, IG</td><td>Behind the grinder</td></tr>
+<tr><td>Tue 19:00</td><td class="where">Threads, IG</td><td>Holiday opening hours</td></tr>
+</tbody></table></li>
+</ol>
+</figure>
+</div></section>
+
+<section class="band" id="setup" aria-labelledby="setup-title"><div class="wrap">
+<div class="intro">
+<h2 id="setup-title">Add siar to your agent with one snippet</h2>
+<p>Sign in, create a key, paste the snippet for your agent. From then on you post by asking.</p>
+</div>
+<div class="setup">
+<ol class="steps">
+<li><strong>Sign in with GitHub or Google</strong><span>Your workspace starts on the free plan. No card.</span></li>
+<li><strong>Create an API key</strong><span>In the dashboard. It is shown once; we only keep a hash.</span></li>
+<li><strong>Paste the snippet</strong><span>Pick your agent on the right and swap in your key.</span></li>
+<li><strong>Connect your accounts</strong><span>In the dashboard, or ask your agent to call <code>connect_account</code>.</span></li>
+</ol>
+<div>
+{{setup}}
+<div class="prompt">
+<h3>Paste this to your agent</h3>
+<p class="muted small">A short brief so your agent uses siar well from the first message: which tools to call, and when to ask you first.</p>
+<div class="code"><pre class="wrap-lines" data-what="agent brief"><code>{{prompt}}</code></pre></div>
+</div>
+</div>
+</div>
+</div></section>
+
+<section class="band" aria-labelledby="say-title"><div class="wrap">
+<div class="intro">
+<h2 id="say-title">What you can hand off</h2>
+<p>You write one line. Your agent picks the tools; siar checks the platform rules and does the posting.</p>
+</div>
+<ul class="says">
+<li><q>Post the launch thread to X and Bluesky tomorrow at 9.</q><span class="does"><code>validate_post</code> checks length, media and options for each network before <code>schedule_post</code> saves it, so the post doesn't fail at 9.</span></li>
+<li><q>Answer the questions under yesterday's reel. Show me first.</q><span class="does"><code>list_comments</code> pulls the new ones; <code>reply_to_comment</code> sends the replies you approve.</span></li>
+<li><q>When someone comments ‘menu’, DM them the link.</q><span class="does"><code>create_automation</code> sets up a comment-to-DM on Instagram, with human-like delays and once per person.</span></li>
+<li><q>Which posts worked last month, and when should we post?</q><span class="does"><code>post_performance</code> compares each post with the account's usual reach; <code>best_times</code> finds the hours your own posts do best.</span></li>
+<li><q>The 8 a.m. post failed. Why?</q><span class="does"><code>get_post</code> shows the platform's error for each target; <code>retry_post</code> sends it again.</span></li>
+<li><q>Save these five ideas for next week.</q><span class="does"><code>create_idea</code> keeps them on the ideas board until you turn them into posts.</span></li>
+</ul>
+</div></section>
+
+<section class="band" aria-labelledby="pf-title"><div class="wrap split">
+<div>
+<h2 id="pf-title">One set of tools for every network you post to</h2>
+<p class="muted">The same calls schedule a reel, a LinkedIn post or a Bluesky thread. <code>list_platforms</code> tells your agent each network's limits and options.</p>
+{{platforms}}
+</div>
+<aside class="honest" aria-labelledby="connect-title">
+<h3 id="connect-title">How connecting works today</h3>
+<p>Token-based networks (Bluesky, Mastodon, Telegram, Discord, Slack and the rest) connect in a minute: paste the token in the dashboard, or let your agent do it.</p>
+<p>Networks with a sign-in screen (Instagram, Threads, Facebook, LinkedIn, YouTube, TikTok, X) connect through <strong>your own developer app</strong> for now. The dashboard shows the exact redirect URI to register, and the guides walk through each console:</p>
+<ul>
+<li><a href="https://github.com/dzulfikar08/siar/blob/main/docs/setup/meta.md">Meta: Instagram, Threads, Facebook</a></li>
+<li><a href="https://github.com/dzulfikar08/siar/blob/main/docs/setup/google.md">Google: YouTube, Business Profile</a></li>
+<li><a href="https://github.com/dzulfikar08/siar/blob/main/docs/setup/linkedin.md">LinkedIn</a></li>
+<li><a href="https://github.com/dzulfikar08/siar/blob/main/docs/setup/other.md">Everything else</a></li>
+</ul>
+<p class="small muted last">One-click connect through siar's own apps is coming, platform by platform, as Meta, Google and LinkedIn approve them.</p>
+</aside>
+</div></section>
+
+<section class="band" aria-labelledby="os-title"><div class="wrap split">
+<div>
+<h2 id="os-title">Read the code. Run it yourself if you like.</h2>
+<p class="muted gap-top">siar is AGPL-3.0 and written in Rust: one static binary that idles at about 11 MB of memory in our CI runs. Self-hosting is free and gives you the same tools. The hosted service is for when you'd rather not keep a server up for the scheduler.</p>
+<p><a class="btn ghost" href="https://github.com/dzulfikar08/siar">Read the source on GitHub</a></p>
+</div>
+<div class="table-scroll">
+<table class="compare">
+<thead><tr><td></td><th scope="col">Hosted</th><th scope="col">Self-hosted</th></tr></thead>
+<tbody>
+<tr><th scope="row">Price</th><td>{{hosted_price}}</td><td>Free</td></tr>
+<tr><th scope="row">Server</th><td>We run it; the scheduler is always on</td><td>Your VPS or home server</td></tr>
+<tr><th scope="row">Platform apps</th><td>Your own today; siar's as they are approved</td><td>Your own</td></tr>
+<tr><th scope="row">Your tokens</th><td>Encrypted with a key for your workspace only</td><td>Encrypted on your disk</td></tr>
+<tr><th scope="row">Leaving</th><td>Delete everything from the dashboard</td><td>Delete the folder</td></tr>
+</tbody>
+</table>
+</div>
+</div></section>
+
+<section class="band" aria-label="Pricing"><div class="wrap">
+<div class="price-strip">
+<p>{{price_line}}</p>
+<a class="btn ghost" href="/pricing">See pricing and fees</a>
+</div>
+</div></section>
