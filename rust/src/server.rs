@@ -379,6 +379,7 @@ fn dispatch(server: Arc<Server>) {
         }
     }
     for req in server.incoming_requests() {
+        #[allow(deprecated)]
         let claimed = idle.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
         if !claimed {
             if let Err(e) = spawn_worker(rx.clone(), idle.clone()) {

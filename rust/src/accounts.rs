@@ -7,7 +7,7 @@ use crate::db::{self, AccountRow, MediaRow};
 use crate::media::get_media;
 use crate::platforms;
 use crate::providers;
-use crate::util::{bail, iso, json_or, new_id, now, str_of, Error, Obj, Result};
+use crate::util::{bail, iso, json_or, new_id, now, str_of, Obj, Result};
 use crate::vault;
 
 pub fn public_account(a: &AccountRow) -> Value {
@@ -188,6 +188,7 @@ pub fn ensure_fresh(a: &AccountRow, force: bool) -> Result<Value> {
 
 /// What a provider call gets: the account, its fresh secret, and the post's text, media and options.
 pub struct Ctx {
+    pub account_id: String,
     pub handle: Option<String>,
     pub external_id: String,
     pub meta: Value,
@@ -219,6 +220,7 @@ pub fn to_media(ids: &[String]) -> Result<Vec<MediaRow>> {
 pub fn build_ctx(a: &AccountRow, text: &str, media_ids: &[String], options: Value, force_refresh: bool) -> Result<Ctx> {
     let secret = ensure_fresh(a, force_refresh)?;
     Ok(Ctx {
+        account_id: a.id.clone(),
         handle: a.handle.clone(),
         external_id: a.external_id.clone(),
         meta: json_or(Some(&a.meta), Value::Object(Default::default())),

@@ -799,7 +799,7 @@ pub fn post_metrics(post_id: &str) -> Result<Value> {
             &t.options,
             &a.platform,
         );
-        let r = (|| {
+        let r = (|| -> Result<Value> {
             let ctx = build_ctx(&a, &text, &[], options, false)?;
             let m = providers::metrics(&a.platform, &ctx, t.remote_id.as_deref().unwrap_or_default())?;
             store_metric(&t.id, &m)?;
