@@ -3,6 +3,8 @@
 #   rust/parity/run.sh <path to the Rust siar binary>
 # Starts fake platforms, seeds one database with the TS code, copies it, runs `bun src/index.ts serve`
 # and the Rust binary side by side on the copies, and diffs every tool's answer.
+# Also here: cpu.ts (local per-call CPU), bench.sh + vps-bench.sh (production read-only benchmark),
+# ro-compare.ts (read-only comparison against a copy of production data).
 set -u
 BIN=$(realpath "$1")
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
