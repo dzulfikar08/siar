@@ -498,7 +498,8 @@ pub fn handle_doku(client_id: &str, request_id: &str, timestamp: &str, signature
     let invoice = ev.pointer("/order/invoice_number").map(js_string).unwrap_or_default();
     let status = ev.pointer("/transaction/status").map(js_string).unwrap_or_default();
     let tenant: String = control::with(|c| {
-        Ok(c.query_row("SELECT tenant_id FROM invoices WHERE invoice_number = ?", [&invoice], |r| r.get(0)).optional()?)
+        Ok(c.query_row("SELECT tenant_id FROM invoices WHERE invoice_number = ?", [&invoice], |r| r.get(0))
+            .optional()?)
     })?
     .unwrap_or_else(|| "-".into());
     // Request-Id identifies the notification; DOKU resends it with the same id.
