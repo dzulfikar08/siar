@@ -1,5 +1,5 @@
 //! siar command line: `serve`, `mcp` (stdio), `keygen`, and in hosted mode the operator commands
-//! `tenant create`, `key create`, `plan list` and `plan put`.
+//! `tenant create`, `key create`, `plan list`, `plan put`, `plan default` and `mail test`.
 
 use siar::{config, control, db, mcp, scheduler, server, tenant, vault};
 
@@ -15,7 +15,8 @@ hosted mode (SIAR_MODE=hosted):
   siar key create <tenant> <name>  another API key for a workspace
   siar plan list                   plans as JSON
   siar plan put '<json>'           add or replace a plan (see rust/HOSTED.md)
-  siar plan default <plan id>      plan for workspaces without a subscription";
+  siar plan default <plan id>      plan for workspaces without a subscription
+  siar mail test <address>         send a test e-mail through the configured mailer";
 
 fn hosted_only() -> siar::util::Result<()> {
     if !tenant::hosted() {
@@ -69,6 +70,13 @@ fn admin(args: &[String]) -> siar::util::Result<()> {
             control::set_setting("default_plan", id)?;
             println!("default plan: {id}");
         }
+        ["mail", "test", to] => {
+            let text = "This is a test e-mail from siar. If you can read it, sending works.\n";
+            if !siar::mailer::send(to, "siar test e-mail", text, &format!("<p>{}</p>", text.trim()))? {
+                return Err(siar::util::Error::Msg("Mail is not configured (SIAR_MAIL_* unset)".into()));
+            }
+            println!("sent to {to}");
+        }
         _ => {
             eprintln!("{USAGE}");
             std::process::exit(1);
@@ -110,7 +118,7 @@ fn main() {
             );
             Ok(())
         }
-        "tenant" | "key" | "plan" => admin(&args),
+        "tenant" | "key" | "plan" | "mail" => admin(&args),
         _ => {
             eprintln!("{USAGE}");
             std::process::exit(1);

@@ -40,7 +40,7 @@ The same binary runs in two modes:
 | `GOOGLE_LOGIN_CLIENT_ID`, `GOOGLE_LOGIN_CLIENT_SECRET` | sign-in with Google (separate from the YouTube app) |
 | `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_SERVER` | `sandbox` (default) or `production` |
 | `DOKU_CLIENT_ID`, `DOKU_SECRET_KEY`, `DOKU_SERVER` | `sandbox` (default) or `production` |
-| `SIAR_MAIL_FROM`, `SIAR_MAIL_CF_ACCOUNT_ID`, `SIAR_MAIL_CF_API_TOKEN` | renewal e-mails through Cloudflare Email Service, e.g. `siar <billing@diatur.com>`; token needs **Email Sending: Edit**, and diatur.com must be onboarded under Email Sending. Unset = log only |
+| `SIAR_MAIL_FROM`, `SIAR_MAIL_CF_ACCOUNT_ID`, `SIAR_MAIL_CF_API_TOKEN` | renewal e-mails through Cloudflare Email Service (see [E-mail](#e-mail)); `SIAR_MAIL_FROM="siar <noreply@siar.diatur.com>"` (quoted: the env file is also sourced by `sh`). Unset = log only |
 | `SIAR_MAIL_REPLY_TO` | optional reply-to address |
 | `SIAR_SHARED_APPS` | comma-separated app prefixes everyone may use, e.g. `THREADS,INSTAGRAM` (see below) |
 | `<PREFIX>_CLIENT_ID` / `_SECRET` | the shared apps' credentials (as in single-tenant mode) |
@@ -79,7 +79,7 @@ Then `siar-admin plan list` and so on:
 
 - `siar tenant create <name>`: a workspace without a sign-in user and its first API key (for tests)
 - `siar key create <tenant> <name>`: another key
-- `siar plan list`, `siar plan put '<json>'`, `siar plan default <id>`
+- `siar plan list`, `siar plan put '<json>'`, `siar plan default <id>`, `siar mail test <address>`
   (a line of `plan list` can be edited and passed back to `plan put`; `polar_price_cents` is computed
   and ignored on input)
 
@@ -226,6 +226,25 @@ Requests and notifications use DOKU's non-SNAP signature: `HMACSHA256=` + base64
 `Client-Id`, `Request-Id`, `Request-Timestamp`, `Request-Target` and `Digest` lines. The
 notification's Request-Target is our path, `/billing/doku/notify`; the paid amount must match the
 invoice.
+
+## E-mail
+
+Renewal reminders go out through Cloudflare Email Service's REST API
+(`POST /client/v4/accounts/{account_id}/email/sending/send`, `from` as `{name, address}`).
+Set up 17 Nov 2026:
+
+- Sending domain **siar.diatur.com** (a subdomain, onboarded under Compute → Email Service → Email
+  Sending, zone diatur.com). Not the root: diatur.com is onboarded too and used by another app, and
+  its reputation was "At Risk" (bounces). Onboarding added only new names, nothing at
+  `siar.diatur.com` itself (the tunnel hostname is untouched): MX ×3 and SPF TXT on
+  `cf-bounce.siar.diatur.com`, DKIM TXT `cf-bounce._domainkey.siar.diatur.com`, DMARC TXT
+  `_dmarc.siar.diatur.com` (`v=DMARC1; p=reject;`, same as the root). There is no inbox: replies to
+  noreply@ go nowhere; set `SIAR_MAIL_REPLY_TO` for a real address.
+- Sender `siar <noreply@siar.diatur.com>`.
+- Token: account API token **siar-hosted mail**, permission Email Sending: Edit only, no expiry.
+- Test: `siar-admin mail test you@example.com`. The journal shows
+  `[mail] sent to … (cloudflare: {"delivered":[…],…})`; a permanent bounce is reported as an error.
+  The domain's Activity log in the dashboard shows each message's result.
 
 ## Sign-in apps
 

@@ -2,7 +2,7 @@
 //! /client/v4/accounts/{account_id}/email/sending/send with an API token that has Email Sending:
 //! Edit). Disabled when unset: messages are only logged.
 //!
-//! Env: SIAR_MAIL_FROM ("siar <billing@diatur.com>" or an address), SIAR_MAIL_CF_ACCOUNT_ID,
+//! Env: SIAR_MAIL_FROM ("siar <noreply@siar.diatur.com>" or an address), SIAR_MAIL_CF_ACCOUNT_ID,
 //! SIAR_MAIL_CF_API_TOKEN, optional SIAR_MAIL_REPLY_TO, SIAR_MAIL_API_BASE (tests).
 
 use rusqlite::{params, OptionalExtension};
@@ -61,7 +61,12 @@ pub fn send(to: &str, subject: &str, text: &str, html: &str) -> Result<bool> {
             r.get("errors").map(|e| e.to_string()).unwrap_or_default()
         )));
     }
-    eprintln!("{} [mail] sent to {to}: {subject}", iso(now()));
+    // result: {delivered, queued, permanent_bounces}, each a list of addresses.
+    let res = r.get("result").cloned().unwrap_or(Value::Null);
+    if res["permanent_bounces"].as_array().is_some_and(|b| !b.is_empty()) {
+        return Err(crate::util::Error::Msg(format!("Cloudflare Email: permanent bounce for {to}")));
+    }
+    eprintln!("{} [mail] sent to {to}: {subject} (cloudflare: {res})", iso(now()));
     Ok(true)
 }
 
