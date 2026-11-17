@@ -131,7 +131,14 @@ siar schedule-post --content @post.md --targets '["acc_…"]' --at 2026-11-20T08
 siar stage-media --path ./cover.jpg --alt "Dashboard screenshot"   # uploads the file to the server
 ```
 
-The token stays in the environment, so it never enters the model's context. Without `SIAR_URL` the commands run locally against `SIAR_DATA_DIR` (no scheduler). [`skills/siar/SKILL.md`](skills/siar/SKILL.md) teaches an agent the workflow: copy it to `~/.claude/skills/siar/` for Claude Code, or upload it to ClawHub for OpenClaw.
+The token stays in the environment, so it never enters the model's context. Without `SIAR_URL` the commands run locally against `SIAR_DATA_DIR` (no scheduler). [`skills/siar/SKILL.md`](skills/siar/SKILL.md) teaches an agent the workflow. In Claude Code, install it as a plugin:
+
+```
+/plugin marketplace add dzulfikar08/siar
+/plugin install siar@siar
+```
+
+Other agents (OpenClaw, Codex): copy `skills/siar/` into their skills folder.
 
 `deploy/` has a hardened systemd unit, a Cloudflare Tunnel config template and `deploy.sh <ssh-host>`, which ships the current commit to `/opt/siar/app` and restarts the service. It uses about 35 MB of RAM idle.
 

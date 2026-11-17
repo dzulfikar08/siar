@@ -1,0 +1,14 @@
+{
+  "name": "siar",
+  "description": "siar: a self-hosted social media scheduler your agent drives (MCP server + CLI)",
+  "owner": { "name": "Dzulfikar Ats Tsauri" },
+  "plugins": [
+    {
+      "name": "siar",
+      "source": "./",
+      "description": "Schedule, publish and measure social posts through your siar server with the siar CLI",
+      "category": "productivity",
+      "tags": ["social-media", "scheduler", "self-hosted"]
+    }
+  ]
+}
