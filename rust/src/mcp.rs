@@ -111,8 +111,18 @@ pub fn handle(msg: &Value) -> Option<Value> {
 pub fn handle_batch(body: &Value) -> Option<Value> {
     match body {
         Value::Array(items) => {
+            let tenant = crate::tenant::current();
             let out: Vec<Value> = std::thread::scope(|s| {
-                let hs: Vec<_> = items.iter().map(|m| s.spawn(move || handle(m))).collect();
+                let hs: Vec<_> = items
+                    .iter()
+                    .map(|m| {
+                        let tenant = tenant.clone();
+                        s.spawn(move || {
+                            let _g = crate::tenant::enter_opt(tenant);
+                            handle(m)
+                        })
+                    })
+                    .collect();
                 hs.into_iter().filter_map(|h| h.join().ok().flatten()).collect()
             });
             if out.is_empty() {
@@ -365,7 +375,7 @@ fn connect_account(a: &Value) -> Result<Value> {
     if p.oauth_env().is_some() {
         return Ok(Obj::new()
             .set("open_this_url", start_oauth(&platform)?)
-            .set("callback", format!("{}/oauth/{platform}/callback", config().public_url))
+            .set("callback", crate::config::redirect_uri(&platform))
             .set("then", "call list_accounts after the user approves")
             .build());
     }
@@ -402,11 +412,14 @@ fn account_analytics(a: &Value) -> Result<Value> {
         Some(id) => vec![get_account(&id)?],
         None => list_account_rows(None)?,
     };
+    let tenant = crate::tenant::current();
     let out: Vec<Value> = std::thread::scope(|s| {
         let hs: Vec<_> = rows
             .iter()
             .map(|acc| {
+                let tenant = tenant.clone();
                 s.spawn(move || {
+                    let _g = crate::tenant::enter_opt(tenant);
                     let label = acc.label();
                     let p = match platforms::get(&acc.platform) {
                         Ok(p) => p,
@@ -463,7 +476,39 @@ fn status() -> Result<Value> {
         .set("posts", counts)
         .set("next", next)
         .set("now", iso(now()))
+        .opt("plan", hosted_plan()?)
         .build())
+}
+
+/// Hosted mode: the tenant's plan, limits and this month's usage.
+fn hosted_plan() -> Result<Option<Value>> {
+    let Some(t) = crate::tenant::current_id() else { return Ok(None) };
+    let p = crate::control::effective_plan(&t)?;
+    let storage: i64 = db::with(|c| Ok(c.query_row("SELECT COALESCE(SUM(size), 0) FROM media", [], |r| r.get(0))?))?;
+    let accounts: i64 = db::with(|c| Ok(c.query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0))?))?;
+    Ok(Some(
+        Obj::new()
+            .set("id", p.id.clone())
+            .set("name", p.name.clone())
+            .set(
+                "limits",
+                Obj::new()
+                    .set("accounts", p.max_accounts)
+                    .set("posts_per_month", p.max_posts_month)
+                    .set("storage_mb", p.max_storage_mb)
+                    .set("upload_mb", p.max_upload_mb)
+                    .build(),
+            )
+            .set(
+                "usage",
+                Obj::new()
+                    .set("accounts", accounts)
+                    .set("posts_this_month", crate::control::posts_this_month(&t)?)
+                    .set("storage_mb", (storage as f64 / 1_048_576.0 * 10.0).round() / 10.0)
+                    .build(),
+            )
+            .build(),
+    ))
 }
 
 #[cfg(test)]

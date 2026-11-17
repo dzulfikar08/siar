@@ -8,7 +8,7 @@ use tiny_http::{Header, Method, Request, Response, Server};
 
 use crate::config::config;
 use crate::mcp::handle_batch;
-use crate::media::{local_media_path, mime_for_ext};
+use crate::media::mime_for_ext;
 use crate::oauth::finish_oauth;
 use crate::util::{bail, Result};
 
@@ -85,7 +85,7 @@ fn terms() -> String {
 }
 
 /// A response header; bytes a header cannot carry (non-ASCII, control characters) are percent-encoded.
-fn header(k: &str, v: &str) -> Header {
+pub(crate) fn header(k: &str, v: &str) -> Header {
     let safe: String = v
         .bytes()
         .map(|b| {
@@ -99,9 +99,9 @@ fn header(k: &str, v: &str) -> Header {
     Header::from_bytes(k.as_bytes(), safe.as_bytes()).unwrap_or_else(|_| Header::from_bytes(&b"x-invalid"[..], &b"1"[..]).expect("static header"))
 }
 
-type Resp = Response<std::io::Cursor<Vec<u8>>>;
+pub(crate) type Resp = Response<std::io::Cursor<Vec<u8>>>;
 
-fn text(body: &str, status: u16) -> Resp {
+pub(crate) fn text(body: &str, status: u16) -> Resp {
     Response::from_string(format!("{body}\n"))
         .with_chunked_threshold(usize::MAX)
         .with_status_code(status)
@@ -114,7 +114,7 @@ fn html(title: &str, body: &str) -> Resp {
         .with_header(header("content-type", "text/html; charset=utf-8"))
 }
 
-fn json_resp(v: &Value, status: u16) -> Resp {
+pub(crate) fn json_resp(v: &Value, status: u16) -> Resp {
     // One write with a Content-Length instead of 8 KB chunks.
     Response::from_data(serde_json::to_vec(v).unwrap_or_default())
         .with_chunked_threshold(usize::MAX)
@@ -122,7 +122,7 @@ fn json_resp(v: &Value, status: u16) -> Resp {
         .with_header(header("content-type", "application/json;charset=utf-8"))
 }
 
-fn empty(status: u16) -> Resp {
+pub(crate) fn empty(status: u16) -> Resp {
     Response::from_data(vec![]).with_status_code(status)
 }
 
@@ -149,7 +149,7 @@ fn authorized(req: &Request) -> bool {
     got.bytes().zip(want.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
 
-fn query_param(query: &str, key: &str) -> Option<String> {
+pub(crate) fn query_param(query: &str, key: &str) -> Option<String> {
     for pair in query.split('&') {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
         if decode(k) == key {
@@ -159,7 +159,7 @@ fn query_param(query: &str, key: &str) -> Option<String> {
     None
 }
 
-fn decode(s: &str) -> String {
+pub(crate) fn decode(s: &str) -> String {
     let s = s.replace('+', " ");
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -179,15 +179,22 @@ fn decode(s: &str) -> String {
 }
 
 /// `[\w-]{6,16}`
-fn is_link_code(s: &str) -> bool {
+pub(crate) fn is_link_code(s: &str) -> bool {
     (6..=16).contains(&s.len()) && s.chars().all(|c| is_word(c) || c == '-')
 }
 
-fn is_word(c: char) -> bool {
+pub(crate) fn is_word(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
-fn route(mut req: Request) {
+fn route(req: Request) {
+    if crate::tenant::hosted() {
+        return crate::web::route(req);
+    }
+    route_single(req)
+}
+
+fn route_single(mut req: Request) {
     let url = req.url().to_string();
     let (path, query) = url.split_once('?').unwrap_or((&url, ""));
     let path = path.to_string();
@@ -340,14 +347,19 @@ fn route(mut req: Request) {
 }
 
 /// `/media/(med_[0-9a-f]{16})/([\w.\-]+)`
-fn serve_media(rest: &str) -> Result<Option<(std::fs::File, &'static str)>> {
+pub(crate) fn serve_media(rest: &str) -> Result<Option<(std::fs::File, &'static str)>> {
+    serve_media_in(&crate::tenant::media_dir(), rest)
+}
+
+/// `/media/(med_[0-9a-f]{16})/([\w.\-]+)` under `dir`.
+pub(crate) fn serve_media_in(dir: &std::path::Path, rest: &str) -> Result<Option<(std::fs::File, &'static str)>> {
     let Some((id, name)) = rest.split_once('/') else { return Ok(None) };
     let id_ok = id.len() == 20 && id.starts_with("med_") && id[4..].chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
     let name_ok = !name.is_empty() && name.chars().all(|c| is_word(c) || c == '.' || c == '-');
     if !id_ok || !name_ok || name == "." || name == ".." {
         return Ok(None);
     }
-    let path = local_media_path(&format!("{id}/{name}"));
+    let path = dir.join(id).join(name);
     let ext = name.rfind('.').map(|i| name[i..].to_lowercase()).unwrap_or_default();
     match std::fs::File::open(path) {
         Ok(f) if f.metadata().map(|m| m.is_file()).unwrap_or(false) => Ok(Some((f, mime_for_ext(&ext).unwrap_or("application/octet-stream")))),
@@ -396,7 +408,7 @@ fn dispatch(server: Arc<Server>) {
 
 pub fn start() -> Result<()> {
     let c = config();
-    if c.api_token.as_deref().map(|t| t.len() < 24).unwrap_or(true) {
+    if !crate::tenant::hosted() && c.api_token.as_deref().map(|t| t.len() < 24).unwrap_or(true) {
         bail!("Set SIAR_API_TOKEN (24+ characters) before `serve`; it protects the /mcp endpoint");
     }
     if c.contact.is_empty() {

@@ -77,6 +77,16 @@ pub fn r2_enabled() -> bool {
 
 /// OAuth app credentials per platform: X_CLIENT_ID / X_CLIENT_SECRET etc.
 pub fn app_creds(prefix: &str) -> Result<(String, String)> {
+    // Hosted mode: the tenant's own app first, then the operator's shared app if switched on.
+    if crate::tenant::hosted() {
+        if let Some(c) = crate::tenant::byo_creds(prefix)? {
+            let s = |k: &str| c.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            return Ok((s("client_id"), s("client_secret")));
+        }
+        if !crate::tenant::shared_app_enabled(prefix) {
+            bail!("Add your own {prefix} app credentials in the siar dashboard (Apps) to connect this platform; shared apps are not available for it yet");
+        }
+    }
     let id = env(&format!("{prefix}_CLIENT_ID"));
     let secret = env(&format!("{prefix}_CLIENT_SECRET")).unwrap_or_default();
     match id {
@@ -92,6 +102,29 @@ pub fn app_creds(prefix: &str) -> Result<(String, String)> {
     }
 }
 
+/// OAuth redirect URI. Hosted tenants with their own app get a per-tenant URI they register in
+/// that app; shared apps and single-tenant mode use `/oauth/<platform>/callback`.
 pub fn redirect_uri(platform: &str) -> String {
+    if let Some(tid) = crate::tenant::current_id() {
+        let prefix = crate::providers::oauth_spec(platform).map(|s| s.env).unwrap_or("");
+        if crate::tenant::uses_byo(prefix) {
+            return format!("{}/oauth/t/{tid}/{platform}/callback", config().public_url);
+        }
+    }
     format!("{}/oauth/{platform}/callback", config().public_url)
+}
+
+/// An app setting from the tenant's own app (e.g. INSTAGRAM_CONFIG_ID -> its config_id), else env.
+pub fn app_setting(name: &str) -> Option<String> {
+    if crate::tenant::hosted() {
+        if let Some((prefix, field)) = name.rsplit_once("_CONFIG_ID").map(|(p, _)| (p, "config_id")) {
+            if let Ok(Some(c)) = crate::tenant::byo_creds(prefix) {
+                return c.get(field).and_then(|v| v.as_str()).filter(|v| !v.is_empty()).map(|v| v.to_string());
+            }
+            if !crate::tenant::shared_app_enabled(prefix) {
+                return None;
+            }
+        }
+    }
+    env(name)
 }

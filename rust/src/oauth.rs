@@ -6,7 +6,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::accounts::save_accounts;
-use crate::config::{app_creds, env, redirect_uri};
+use crate::config::{app_creds, redirect_uri};
 use crate::db;
 use crate::platforms;
 use crate::providers;
@@ -25,7 +25,7 @@ pub fn start_oauth(platform: &str) -> Result<String> {
     let (id, _) = app_creds(spec.env)?;
     let state = b64url(&random_bytes(18));
     let verifier = b64url(&random_bytes(48));
-    let config_id = spec.config_id_env.and_then(env);
+    let config_id = spec.config_id_env.and_then(crate::config::app_setting);
     if let (Some(e), None) = (spec.config_id_env, &config_id) {
         bail!("Set {e} (the login configuration id from the Meta app) to connect this platform");
     }
@@ -37,7 +37,21 @@ pub fn start_oauth(platform: &str) -> Result<String> {
         )?;
         Ok(())
     })?;
-    let mut q: Vec<(&str, String)> = vec![("client_id", id), ("redirect_uri", redirect_uri(platform)), ("response_type", "code".into())];
+    if let Some(t) = crate::tenant::current_id() {
+        crate::control::with(|c| {
+            c.execute("DELETE FROM oauth_states WHERE created_at < ?", [now() - 30 * 60_000])?;
+            c.execute(
+                "INSERT INTO oauth_states (state, tenant_id, created_at) VALUES (?, ?, ?)",
+                params![state, t, now()],
+            )?;
+            Ok(())
+        })?;
+    }
+    let mut q: Vec<(&str, String)> = vec![
+        (spec.client_id_param, id),
+        ("redirect_uri", redirect_uri(platform)),
+        ("response_type", "code".into()),
+    ];
     match config_id {
         Some(cid) => {
             q.push(("config_id", cid));
@@ -79,4 +93,15 @@ pub fn finish_oauth(platform: &str, code: &str, state: &str) -> Result<Vec<Value
     let tokens = providers::exchange(platform, code, &verifier)?;
     let accounts = providers::profile(platform, &tokens)?;
     save_accounts(platform, &accounts)
+}
+
+/// Hosted mode: the tenant that started an OAuth flow with this state (shared-app callbacks).
+pub fn tenant_of_state(state: &str) -> Result<Option<String>> {
+    crate::control::with(|c| {
+        Ok(rusqlite::OptionalExtension::optional(c.query_row(
+            "SELECT tenant_id FROM oauth_states WHERE state = ? AND created_at > ?",
+            params![state, now() - 30 * 60_000],
+            |r| r.get(0),
+        ))?)
+    })
 }

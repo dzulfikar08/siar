@@ -115,11 +115,16 @@ pub fn public_media(m: &MediaRow) -> Value {
 }
 
 pub fn local_media_path(key: &str) -> PathBuf {
-    config().media_dir.join(key)
+    crate::tenant::media_dir().join(key)
 }
 
 /// Copy a reader to a file, returning (bytes, first 16 bytes, sha256 hex).
-fn copy_hashing(mut r: impl Read, path: &Path) -> Result<(u64, Vec<u8>, String)> {
+fn copy_hashing(r: impl Read, path: &Path) -> Result<(u64, Vec<u8>, String)> {
+    copy_limited(r, path, None)
+}
+
+/// Like copy_hashing, but stops with `limit.1` as the error once more than `limit.0` bytes arrive.
+fn copy_limited(mut r: impl Read, path: &Path, limit: Option<&(u64, String)>) -> Result<(u64, Vec<u8>, String)> {
     let mut f = File::create(path)?;
     let mut hasher = Sha256::new();
     let mut head = Vec::with_capacity(16);
@@ -136,29 +141,64 @@ fn copy_hashing(mut r: impl Read, path: &Path) -> Result<(u64, Vec<u8>, String)>
         hasher.update(&buf[..k]);
         f.write_all(&buf[..k])?;
         n += k as u64;
+        if let Some((max, msg)) = limit {
+            if n > *max {
+                bail!("{msg}");
+            }
+        }
     }
     f.sync_all()?;
     Ok((n, head, hex(&hasher.finalize())))
 }
 
+/// GET a URL for staging. Hosted mode checks every hop, so redirects cannot reach local addresses.
+fn fetch_for_staging(url: &str) -> Result<net::Resp> {
+    if !crate::tenant::hosted() {
+        return net::get(url).timeout_secs(300).send();
+    }
+    let mut url = url.to_string();
+    for _ in 0..5 {
+        crate::limits::check_public_url(&url)?;
+        let res = net::get(&url).no_redirects().timeout_secs(300).send()?;
+        if !(300..400).contains(&res.status) {
+            return Ok(res);
+        }
+        let Some(loc) = res.header("location") else {
+            bail!("Redirect without a location from {url}")
+        };
+        url = if loc.starts_with("http://") || loc.starts_with("https://") {
+            loc
+        } else {
+            let (host, _) = crate::util::host_path(&url);
+            let scheme = if url.starts_with("https") { "https" } else { "http" };
+            format!("{scheme}://{host}{}{loc}", if loc.starts_with('/') { "" } else { "/" })
+        };
+    }
+    bail!("Too many redirects")
+}
+
 pub fn stage_media(args: &Value) -> Result<MediaRow> {
     let s = |k: &str| args.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty()).map(|v| v.to_string());
     let mut filename = s("filename");
+    if crate::tenant::hosted() && s("path").is_some() && s("url").is_none() {
+        bail!("path is not available on the hosted service (it would read the server's disk); give url or base64");
+    }
+    let allowance = crate::limits::upload_allowance()?;
     let id = new_id("med");
-    let dir = config().media_dir.join(&id);
+    let dir = crate::tenant::media_dir().join(&id);
     fs::create_dir_all(&dir)?;
     let tmp = dir.join(".incoming");
     let mut header_mime: Option<String> = None;
     let staged = (|| -> Result<(u64, Vec<u8>, String)> {
         if let Some(url) = s("url") {
-            let res = net::get(&url).timeout_secs(300).send()?;
+            let res = fetch_for_staging(&url)?;
             header_mime = res.header("content-type").map(|c| c.split(';').next().unwrap_or("").trim().to_string());
             if filename.is_none() {
                 let path = crate::util::host_path(&url).1.to_string();
                 let b = basename(&path);
                 filename = Some(if b.is_empty() { "file".into() } else { b });
             }
-            copy_hashing(res.into_reader(), &tmp)
+            copy_limited(res.into_reader(), &tmp, allowance.as_ref())
         } else if let Some(path) = s("path") {
             let f = match File::open(&path) {
                 Ok(f) => f,
@@ -167,7 +207,7 @@ pub fn stage_media(args: &Value) -> Result<MediaRow> {
             if filename.is_none() {
                 filename = Some(basename(&path));
             }
-            copy_hashing(f, &tmp)
+            copy_limited(f, &tmp, allowance.as_ref())
         } else if let Some(b64) = s("base64") {
             let cleaned: String = b64.chars().filter(|c| !c.is_whitespace() && *c != '=').collect();
             let bytes = base64::engine::general_purpose::STANDARD_NO_PAD
@@ -176,7 +216,7 @@ pub fn stage_media(args: &Value) -> Result<MediaRow> {
             if filename.is_none() {
                 filename = Some("upload".into());
             }
-            copy_hashing(bytes.as_slice(), &tmp)
+            copy_limited(bytes.as_slice(), &tmp, allowance.as_ref())
         } else {
             bail!("Give one of url, path or base64")
         }
@@ -202,12 +242,13 @@ pub fn stage_media(args: &Value) -> Result<MediaRow> {
     }
     let filename = safe_filename(&filename);
     let key = format!("{id}/{filename}");
-    let local = config().media_dir.join(&key);
+    let local = crate::tenant::media_dir().join(&key);
     fs::rename(&tmp, &local)?;
     let (storage, url) = if r2_enabled() {
         let r = &config().r2;
         let bucket = r.bucket.as_deref().unwrap_or_default();
-        let (put_url, headers) = sign_s3("PUT", &format!("/{bucket}/{key}"), &sha, &[("content-type", mime.clone())]);
+        let object = format!("{}{key}", crate::tenant::r2_prefix());
+        let (put_url, headers) = sign_s3("PUT", &format!("/{bucket}/{object}"), &sha, &[("content-type", mime.clone())]);
         let put = net::req("PUT", put_url)
             .headers(&headers)
             .body(Body::File {
@@ -221,9 +262,9 @@ pub fn stage_media(args: &Value) -> Result<MediaRow> {
             let _ = fs::remove_dir_all(&dir);
             return Err(e);
         }
-        ("r2", format!("{}/{key}", r.public_url.as_deref().unwrap_or_default()))
+        ("r2", format!("{}/{object}", r.public_url.as_deref().unwrap_or_default()))
     } else {
-        ("local", format!("{}/media/{key}", config().public_url))
+        ("local", format!("{}/{key}", crate::tenant::media_url_prefix()))
     };
     let row = MediaRow {
         id: id.clone(),
@@ -271,10 +312,10 @@ pub fn delete_media(id: &str) -> Result<()> {
     if m.storage == "r2" && r2_enabled() {
         let bucket = config().r2.bucket.clone().unwrap_or_default();
         let empty = hex(&Sha256::digest(b""));
-        let (url, headers) = sign_s3("DELETE", &format!("/{bucket}/{}", m.key), &empty, &[]);
+        let (url, headers) = sign_s3("DELETE", &format!("/{bucket}/{}{}", crate::tenant::r2_prefix(), m.key), &empty, &[]);
         let _ = net::req("DELETE", url).headers(&headers).send();
     }
-    let _ = fs::remove_dir_all(config().media_dir.join(&m.id));
+    let _ = fs::remove_dir_all(crate::tenant::media_dir().join(&m.id));
     db::with(|c| {
         c.execute("DELETE FROM media WHERE id = ?", [id])?;
         Ok(())
@@ -298,7 +339,7 @@ impl Drop for LocalFile {
 }
 
 pub fn local_file(m: &MediaRow) -> Result<LocalFile> {
-    let p = config().media_dir.join(&m.key);
+    let p = crate::tenant::media_dir().join(&m.key);
     if let Ok(md) = fs::metadata(&p) {
         if md.is_file() {
             return Ok(LocalFile {

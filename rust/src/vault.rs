@@ -36,6 +36,17 @@ pub fn parse_key(raw: &str) -> Result<[u8; 32]> {
     }
 }
 
+/// The key to seal secrets with: the tenant's data key in hosted mode, else SIAR_VAULT_KEY.
+fn with_key<T>(f: impl FnOnce(&[u8; 32]) -> Result<T>) -> Result<T> {
+    if let Some(t) = crate::tenant::current() {
+        return f(t.key());
+    }
+    if crate::tenant::hosted() {
+        bail!("No tenant context");
+    }
+    f(key()?)
+}
+
 fn key() -> Result<&'static [u8; 32]> {
     static KEY: OnceLock<[u8; 32]> = OnceLock::new();
     if let Some(k) = KEY.get() {
@@ -83,11 +94,11 @@ pub fn open_with(key: &[u8; 32], blob: &[u8]) -> Result<Value> {
 }
 
 pub fn seal(value: &Value) -> Result<Vec<u8>> {
-    seal_with(key()?, value)
+    with_key(|k| seal_with(k, value))
 }
 
 pub fn open(blob: &[u8]) -> Result<Value> {
-    open_with(key()?, blob)
+    with_key(|k| open_with(k, blob))
 }
 
 pub fn generate_key() -> String {

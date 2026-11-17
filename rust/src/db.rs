@@ -185,6 +185,14 @@ pub fn init() -> Result<()> {
 
 /// Run `f` with the connection. Keep it short: no network calls inside.
 pub fn with<T>(f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    // Hosted mode: the current tenant's database, and never a shared one.
+    if let Some(t) = crate::tenant::current() {
+        let guard = t.conn();
+        return f(&guard);
+    }
+    if crate::tenant::hosted() {
+        return Err(crate::util::Error::Msg("No tenant context".into()));
+    }
     init()?;
     let guard = DB.get().expect("db initialised").lock().unwrap_or_else(|e| e.into_inner());
     f(&guard)

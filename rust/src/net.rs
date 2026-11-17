@@ -155,6 +155,8 @@ pub struct Req {
     headers: Vec<(String, String)>,
     body: Body,
     timeout: Duration,
+    /// Some(0): do not follow redirects; a 3xx answer is returned as is.
+    redirects: Option<u32>,
 }
 
 pub fn req(method: &'static str, url: impl Into<String>) -> Req {
@@ -164,6 +166,7 @@ pub fn req(method: &'static str, url: impl Into<String>) -> Req {
         headers: vec![],
         body: Body::None,
         timeout: Duration::from_secs(120),
+        redirects: None,
     }
 }
 pub fn get(url: impl Into<String>) -> Req {
@@ -213,6 +216,11 @@ impl Req {
     }
     pub fn body(mut self, b: Body) -> Self {
         self.body = b;
+        self
+    }
+    /// Return 3xx answers instead of following them (the caller checks each hop).
+    pub fn no_redirects(mut self) -> Self {
+        self.redirects = Some(0);
         self
     }
     pub fn timeout_secs(mut self, s: u64) -> Self {
@@ -268,11 +276,16 @@ impl Req {
         }
         let request = b.body(send).map_err(|e| Error::Msg(format!("Invalid request: {e}")))?;
         let a = agent();
-        let request = a.configure_request(request).timeout_global(Some(self.timeout)).build();
+        let mut cfg = a.configure_request(request).timeout_global(Some(self.timeout));
+        if let Some(n) = self.redirects {
+            cfg = cfg.max_redirects(n).max_redirects_will_error(false);
+        }
+        let request = cfg.build();
         let res = a.run(request)?;
         let status = res.status().as_u16();
         let (parts, body) = res.into_parts();
-        if !(200..300).contains(&status) {
+        let redirect = self.redirects == Some(0) && (300..400).contains(&status);
+        if !(200..300).contains(&status) && !redirect {
             let mut body = body;
             let text = body.with_config().limit(1 << 20).read_to_string().unwrap_or_default();
             return Err(Error::Http {
@@ -281,7 +294,11 @@ impl Req {
                 url: self.url,
             });
         }
-        Ok(Resp { headers: parts.headers, body })
+        Ok(Resp {
+            status,
+            headers: parts.headers,
+            body,
+        })
     }
 
     /// Send and parse JSON (`{}` for an empty body).
@@ -291,6 +308,7 @@ impl Req {
 }
 
 pub struct Resp {
+    pub status: u16,
     pub headers: http::HeaderMap,
     pub body: ureq::Body,
 }

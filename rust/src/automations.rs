@@ -427,7 +427,10 @@ fn tracked_buttons(x: &Auto, recipient: &str) -> Result<Vec<Button>> {
         })?;
         out.push(Button {
             title,
-            url: Some(format!("{base}/l/{code}")),
+            url: Some(match crate::tenant::current_id() {
+                Some(t) => format!("{base}/l/t/{t}/{code}"),
+                None => format!("{base}/l/{code}"),
+            }),
             payload: None,
         });
     }
@@ -978,17 +981,25 @@ pub fn poll_targets() -> Result<Vec<(String, bool, bool)>> {
 // ---------- Meta webhooks (Instagram), optional and faster than polling ----------
 
 pub fn verify_meta_signature(raw: &[u8], header: Option<&str>) -> bool {
+    verify_meta_signature_with(
+        raw,
+        header,
+        &[
+            env("INSTAGRAM_CLIENT_SECRET").unwrap_or_default(),
+            env("FACEBOOK_CLIENT_SECRET").unwrap_or_default(),
+        ],
+    )
+}
+
+/// X-Hub-Signature-256 against each of `secrets` (app secrets of the Meta apps in use).
+pub fn verify_meta_signature_with(raw: &[u8], header: Option<&str>, secrets: &[String]) -> bool {
     let Some(h) = header.and_then(|h| h.strip_prefix("sha256=")) else {
         return false;
     };
     let got: Vec<u8> = (0..h.len() / 2)
         .filter_map(|i| h.get(i * 2..i * 2 + 2).and_then(|b| u8::from_str_radix(b, 16).ok()))
         .collect();
-    for secret in [env("INSTAGRAM_CLIENT_SECRET"), env("FACEBOOK_CLIENT_SECRET")]
-        .into_iter()
-        .flatten()
-        .filter(|s| !s.is_empty())
-    {
+    for secret in secrets.iter().filter(|s| !s.is_empty()) {
         let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
             continue;
         };

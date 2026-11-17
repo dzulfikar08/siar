@@ -36,6 +36,19 @@ pub fn save_accounts(platform: &str, accounts: &[Connected]) -> Result<Vec<Value
     if accounts.is_empty() {
         bail!("The platform returned no accounts to connect");
     }
+    if crate::tenant::current().is_some() {
+        let mut new = 0;
+        for a in accounts {
+            let exists: bool = db::with(|c| {
+                Ok(c.prepare_cached("SELECT 1 FROM accounts WHERE platform = ? AND external_id = ?")?
+                    .exists(params![platform, a.external_id])?)
+            })?;
+            if !exists {
+                new += 1;
+            }
+        }
+        crate::limits::check_accounts(new)?;
+    }
     let mut sealed = vec![];
     for a in accounts {
         sealed.push(vault::seal(&a.secret)?);
@@ -64,6 +77,11 @@ pub fn save_accounts(platform: &str, accounts: &[Connected]) -> Result<Vec<Value
         }
         Ok(())
     })?;
+    if let Some(t) = crate::tenant::current_id() {
+        for a in accounts {
+            crate::control::index_account(platform, &a.external_id, &t)?;
+        }
+    }
     let mut out = vec![];
     for a in accounts {
         let row = db::with(|c| {
@@ -245,5 +263,8 @@ pub fn disconnect(account_id: &str) -> Result<Value> {
         c.execute("DELETE FROM accounts WHERE id = ?", [&a.id])?;
         Ok(())
     })?;
+    if let Some(t) = crate::tenant::current_id() {
+        crate::control::unindex_account(&a.platform, &a.external_id, &t)?;
+    }
     Ok(Obj::new().set("disconnected", a.label()).build())
 }

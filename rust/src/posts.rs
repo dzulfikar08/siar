@@ -180,6 +180,9 @@ pub fn create_post(input: &Value, status: &str, at: Option<i64>, force: bool) ->
         get_idea(i)?;
     }
     let targets = norm_targets(input)?;
+    if status == "scheduled" {
+        crate::limits::check_post(None)?;
+    }
     db::tx(false, |c| {
         c.execute(
             "INSERT INTO posts (id, status, content, media, options, scheduled_at, created_at, updated_at, idea_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -187,6 +190,9 @@ pub fn create_post(input: &Value, status: &str, at: Option<i64>, force: bool) ->
         )?;
         insert_targets(c, &id, &targets, at)
     })?;
+    if status == "scheduled" {
+        crate::limits::record_post(&id)?;
+    }
     Ok(Obj::new().set("post", get_post(&id)?).set("checks", checks_json(&checks)).build())
 }
 
@@ -433,6 +439,9 @@ pub fn schedule_post(id: &str, at: Option<i64>, force: bool) -> Result<Value> {
             bail!("{m}");
         }
     }
+    if at.is_some() {
+        crate::limits::check_post(Some(id))?;
+    }
     db::tx(false, |c| {
         c.execute(
             "UPDATE posts SET status = ?, scheduled_at = ?, updated_at = ? WHERE id = ?",
@@ -444,6 +453,9 @@ pub fn schedule_post(id: &str, at: Option<i64>, force: bool) -> Result<Value> {
         )?;
         Ok(())
     })?;
+    if at.is_some() {
+        crate::limits::record_post(id)?;
+    }
     Ok(Obj::new().set("post", get_post(id)?).set("checks", checks_json(&checks)).build())
 }
 
@@ -664,9 +676,12 @@ pub fn recover_interrupted(lease_ms: i64) -> Result<usize> {
 
 /// Publish several targets in parallel threads (Promise.all in TS).
 pub fn publish_all(ids: &[String]) {
+    let tenant = crate::tenant::current();
     std::thread::scope(|s| {
         for id in ids {
+            let tenant = tenant.clone();
             s.spawn(move || {
+                let _g = crate::tenant::enter_opt(tenant);
                 if let Err(e) = publish_target(id) {
                     eprintln!("{} [scheduler] target {id} {e}", iso(now()));
                 }
