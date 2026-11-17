@@ -27,5 +27,20 @@ run() {
   done
   kill $pid; wait $pid 2>/dev/null; rm -rf "$dir"
 }
+# Same-runner baseline: single-tenant mode, idle and after the same four calls.
+single() {
+  local dir; dir=$(mktemp -d)
+  SIAR_DATA_DIR=$dir SIAR_VAULT_KEY=$(head -c32 /dev/urandom | base64) SIAR_API_TOKEN=bench-token-0123456789abcdef SIAR_PORT=18800 SIAR_SCHEDULER=off "$BIN" serve >"$dir/log" 2>&1 &
+  local pid=$!
+  for i in $(seq 50); do curl -sf localhost:18800/health >/dev/null && break; sleep 0.1; done
+  echo "## single-tenant baseline"
+  echo "idle: $(grep -E 'VmRSS' /proc/$pid/status | tr -s ' \t' ' ')"
+  for call in '{"name":"status","arguments":{}}' '{"name":"create_idea","arguments":{"title":"hello"}}' '{"name":"list_posts","arguments":{"limit":20}}' '{"name":"list_ideas","arguments":{}}'; do
+    curl -s -o /dev/null -X POST localhost:18800/mcp -H "authorization: Bearer bench-token-0123456789abcdef" -H 'content-type: application/json' -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":$call}"
+  done
+  echo "after 4 calls: $(grep -E 'VmRSS|VmHWM' /proc/$pid/status | tr -s ' \t' ' ' | tr '\n' ' ')"
+  kill $pid; wait $pid 2>/dev/null; rm -rf "$dir"
+}
+single
 run 64 18801
 run 1000 18802
