@@ -34,8 +34,6 @@ pub enum Body {
         offset: u64,
         len: u64,
     },
-    /// Any reader of a known length (e.g. a download being forwarded), streamed.
-    Reader(Box<dyn Read + Send>, u64),
 }
 
 pub struct Req {
@@ -102,10 +100,6 @@ impl Req {
         self
     }
 
-    pub fn url(&self) -> &str {
-        &self.url
-    }
-
     pub fn send(self) -> Result<Resp> {
         let mut b = http::Request::builder().method(self.method).uri(&self.url);
         let has = |k: &str| self.headers.iter().any(|(h, _)| h.eq_ignore_ascii_case(k));
@@ -141,10 +135,6 @@ impl Req {
                 f.seek(SeekFrom::Start(offset))?;
                 extra.push(("content-length".into(), len.to_string()));
                 ureq::SendBody::from_owned_reader(f.take(len))
-            }
-            Body::Reader(r, len) => {
-                extra.push(("content-length".into(), len.to_string()));
-                ureq::SendBody::from_owned_reader(r)
             }
         };
         for (k, v) in self.headers.iter().chain(extra.iter()) {

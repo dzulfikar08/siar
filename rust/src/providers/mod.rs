@@ -8,7 +8,7 @@ use crate::accounts::{Connected, Ctx};
 use crate::config::{app_creds, redirect_uri};
 use crate::net;
 use crate::platforms;
-use crate::util::{bail, js_string, now, some, str_of, to_num, Error, Obj, Result};
+use crate::util::{bail, js_string, now, some, str_of, to_num, Error, Result};
 
 pub mod instagram;
 pub mod linkedin;
@@ -261,8 +261,4 @@ pub fn refresh_token(spec: &OAuthSpec, secret: &Value) -> Result<Option<(Value, 
     s.insert("access_token".into(), t.get("access_token").cloned().unwrap_or(Value::Null));
     s.insert("refresh_token".into(), some(t.get("refresh_token")).cloned().unwrap_or(Value::from(rt)));
     Ok(Some((Value::Object(s), expires_at(&t))))
-}
-
-pub fn published_json(p: &Published) -> Value {
-    Obj::new().set("id", p.id.clone()).opt("url", p.url.clone()).build()
 }

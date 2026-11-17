@@ -223,10 +223,11 @@ pub fn publish(ctx: &Ctx) -> Result<Published> {
             let m = get_media(&js_string(mid))?;
             assert_public_url(&m, "Threads")?;
             Some((kind_of(&m.mime).to_string(), m.url.clone(), m.alt.clone()))
-        } else if let Some(u) = p.get("media_url").filter(|v| truthy(Some(v))).map(js_string) {
-            Some((if is_video_url(&u) { "video" } else { "image" }.to_string(), u, None))
         } else {
-            None
+            p.get("media_url")
+                .filter(|v| truthy(Some(v)))
+                .map(js_string)
+                .map(|u| ((if is_video_url(&u) { "video" } else { "image" }).to_string(), u, None))
         };
         let mut b = match &media {
             Some((k, u, alt)) => media_body(k, u, alt.as_deref()),

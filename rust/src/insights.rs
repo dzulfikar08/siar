@@ -353,7 +353,7 @@ pub fn snapshot_metrics(limit: usize) -> Result<usize> {
             continue;
         }
         let age = now() - published_at;
-        let Some(due) = CHECKPOINTS_H.iter().filter(|h| age >= *h * 3_600_000).next_back().copied() else {
+        let Some(due) = CHECKPOINTS_H.iter().rfind(|h| age >= **h * 3_600_000).copied() else {
             continue;
         };
         let last: Option<i64> = db::with(|c| Ok(c.query_row("SELECT MAX(fetched_at) AS f FROM metrics WHERE target_id = ?", [&id], |r| r.get(0))?))?;

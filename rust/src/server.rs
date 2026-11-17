@@ -2,7 +2,6 @@
 //! and local media. One thread per request, like Bun's async handlers never blocking each other.
 
 use serde_json::Value;
-use std::io::Read;
 use std::sync::Arc;
 use tiny_http::{Header, Method, Request, Response, Server};
 

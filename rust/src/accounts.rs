@@ -188,8 +188,6 @@ pub fn ensure_fresh(a: &AccountRow, force: bool) -> Result<Value> {
 
 /// What a provider call gets: the account, its fresh secret, and the post's text, media and options.
 pub struct Ctx {
-    pub account_id: String,
-    pub name: String,
     pub handle: Option<String>,
     pub external_id: String,
     pub meta: Value,
@@ -221,8 +219,6 @@ pub fn to_media(ids: &[String]) -> Result<Vec<MediaRow>> {
 pub fn build_ctx(a: &AccountRow, text: &str, media_ids: &[String], options: Value, force_refresh: bool) -> Result<Ctx> {
     let secret = ensure_fresh(a, force_refresh)?;
     Ok(Ctx {
-        account_id: a.id.clone(),
-        name: a.name.clone(),
         handle: a.handle.clone(),
         external_id: a.external_id.clone(),
         meta: json_or(Some(&a.meta), Value::Object(Default::default())),
@@ -248,8 +244,4 @@ pub fn disconnect(account_id: &str) -> Result<Value> {
         Ok(())
     })?;
     Ok(Obj::new().set("disconnected", a.label()).build())
-}
-
-pub fn not_found(id: &str) -> Error {
-    Error::Msg(format!("Unknown account {id}. Call list_accounts."))
 }

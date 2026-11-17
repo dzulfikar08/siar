@@ -163,15 +163,14 @@ pub fn publish(host: &str, ctx: &Ctx) -> Result<Published> {
     );
     put(&mut common, "location_id", ctx.opt("location_id").cloned());
     put(&mut common, "is_ai_generated", ai.clone());
-    let creation;
-    if story {
+    let creation = if story {
         if ctx.media.len() != 1 {
             permanent!("An Instagram story takes exactly one image or video");
         }
         let mut extra = Map::new();
         extra.insert("media_type".into(), "STORIES".into());
         put(&mut extra, "is_ai_generated", ai);
-        creation = create(item(&ctx.media[0], extra))?;
+        create(item(&ctx.media[0], extra))?
     } else if ctx.media.len() == 1 {
         let m = &ctx.media[0];
         let mut extra = common.clone();
@@ -200,7 +199,7 @@ pub fn publish(host: &str, ctx: &Ctx) -> Result<Published> {
             }
             extra.remove("user_tags");
         }
-        creation = create(item(m, extra))?;
+        create(item(m, extra))?
     } else {
         let mut children = vec![];
         for m in &ctx.media {
@@ -222,8 +221,8 @@ pub fn publish(host: &str, ctx: &Ctx) -> Result<Published> {
         for (k, v) in common {
             body.insert(k, v);
         }
-        creation = create(Value::Object(body))?;
-    }
+        create(Value::Object(body))?
+    };
     wait_container(host, &creation, &token)?;
     let publ = net::post(format!("{host}/{ig}/media_publish"))
         .bearer(&token)
