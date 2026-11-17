@@ -1242,7 +1242,7 @@ fn login_page(req: &Request, error: Option<String>, next: Option<String>) -> Res
         }
     }
     let connecting = if next.is_some() {
-        "<p class=\"note ok\" role=\"status\">An AI app wants to connect to siar. Sign in first; you choose whether to allow it on the next page.</p>"
+        "<p class=\"note plain\" role=\"status\">An AI app wants to connect to siar. Sign in first; you choose whether to allow it on the next page.</p>"
     } else {
         ""
     };
