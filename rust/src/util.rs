@@ -456,6 +456,28 @@ pub fn is_tag_char(c: char) -> bool {
         .is_ok()
 }
 
+fn in_table(table: &[(u32, u32)], cp: u32) -> bool {
+    table
+        .binary_search_by(|&(lo, hi)| {
+            if hi < cp {
+                std::cmp::Ordering::Less
+            } else if lo > cp {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
+}
+
+/// `\p{L}` with JavaScript's u flag (letters only; not number letters like Ⅻ).
+pub fn is_letter(c: char) -> bool {
+    if c.is_ascii() {
+        return c.is_ascii_alphabetic();
+    }
+    in_table(crate::unicode_tables::LETTER, c as u32)
+}
+
 /// JavaScript's `\s`.
 pub fn js_is_space(c: char) -> bool {
     matches!(

@@ -52,7 +52,7 @@ pub fn escape_little(s: &str) -> String {
             while j < chars.len() && crate::util::is_tag_char(chars[j].1) {
                 j += 1;
             }
-            if j > i + 1 && chars[i + 1..j].iter().any(|(_, c)| c.is_alphabetic()) {
+            if j > i + 1 && chars[i + 1..j].iter().any(|&(_, c)| crate::util::is_letter(c)) {
                 let end = if j < chars.len() { chars[j].0 } else { s.len() };
                 out.push_str(&escape_raw(&s[last..pos]));
                 out.push_str(&format!("{{hashtag|\\#|{}}}", escape_raw(&s[pos + 1..end])));

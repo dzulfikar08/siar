@@ -69,7 +69,7 @@
  },
  {
   "text": "Thai #ภาษาไทย, Arabic #مرحبا٣ and digits #١٢٣",
-  "escape": "Thai {hashtag|\\#|ภาษาไทย}, Arabic {hashtag|\\#|مرحبا٣} and digits {hashtag|\\#|١٢٣}",
+  "escape": "Thai {hashtag|\\#|ภาษาไทย}, Arabic {hashtag|\\#|مرحبا٣} and digits \\#١٢٣",
   "matches": {
    "info": false,
    "harga": false,
@@ -86,7 +86,7 @@
  },
  {
   "text": "Roman numeral #Ⅻ and superscript #x²",
-  "escape": "Roman numeral {hashtag|\\#|Ⅻ} and superscript {hashtag|\\#|x²}",
+  "escape": "Roman numeral \\#Ⅻ and superscript {hashtag|\\#|x²}",
   "matches": {
    "info": false,
    "harga": false,
