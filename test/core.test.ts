@@ -60,6 +60,7 @@ test("character counting", () => {
 test("LinkedIn little-text escaping", () => {
   expect(escapeLittle("Hi (team) #rust @me")).toBe("Hi \\(team\\) {hashtag|\\#|rust} \\@me");
   expect(escapeLittle("C# and a#b #CMMS_2")).toBe("C\\# and a\\#b {hashtag|\\#|CMMS\\_2}");
+  expect(escapeLittle("Ticket #1042 #2026 #Q4")).toBe("Ticket \\#1042 \\#2026 {hashtag|\\#|Q4}");
 });
 
 test("MCP initialize and tools/list", async () => {

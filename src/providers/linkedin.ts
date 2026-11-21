@@ -9,11 +9,13 @@ const h = (token: string) => ({ authorization: `Bearer ${token}`, "LinkedIn-Vers
 /** LinkedIn "little text": these characters must be backslash-escaped or the post is cut off. */
 const escapeRaw = (s: string) => s.replace(/[\\|{}@\[\]()<>#*_~]/g, (c) => `\\${c}`);
 
-/** Escape text for LinkedIn's "little" format; #tags become clickable hashtag templates. */
+/** Escape text for LinkedIn's "little" format; #tags become clickable hashtag templates.
+ *  A tag needs at least one letter: LinkedIn drops number-only hashtags ("Ticket #1042" would lose its "#"). */
 export const escapeLittle = (s: string) => {
   let out = "";
   let last = 0;
   for (const m of s.matchAll(/(^|\s)#([\p{L}\p{N}_]+)/gu)) {
+    if (!/\p{L}/u.test(m[2]!)) continue;
     const start = m.index! + m[1]!.length;
     out += escapeRaw(s.slice(last, start)) + `{hashtag|\\#|${escapeRaw(m[2]!)}}`;
     last = start + 1 + m[2]!.length;

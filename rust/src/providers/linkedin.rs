@@ -38,7 +38,7 @@ fn escape_raw(s: &str) -> String {
 }
 
 /// Escape text for LinkedIn's "little" format; #tags become clickable hashtag templates.
-/// Mirrors `/(^|\s)#([\p{L}\p{N}_]+)/gu`.
+/// Mirrors `/(^|\s)#([\p{L}\p{N}_]+)/gu`, skipping number-only tags (LinkedIn drops their "#").
 pub fn escape_little(s: &str) -> String {
     let mut out = String::new();
     let mut last = 0;
@@ -52,7 +52,7 @@ pub fn escape_little(s: &str) -> String {
             while j < chars.len() && crate::util::is_tag_char(chars[j].1) {
                 j += 1;
             }
-            if j > i + 1 {
+            if j > i + 1 && chars[i + 1..j].iter().any(|(_, c)| c.is_alphabetic()) {
                 let end = if j < chars.len() { chars[j].0 } else { s.len() };
                 out.push_str(&escape_raw(&s[last..pos]));
                 out.push_str(&format!("{{hashtag|\\#|{}}}", escape_raw(&s[pos + 1..end])));
@@ -343,6 +343,7 @@ mod tests {
     fn little_text_escaping() {
         assert_eq!(escape_little("Hi (team) #rust @me"), "Hi \\(team\\) {hashtag|\\#|rust} \\@me");
         assert_eq!(escape_little("C# and a#b #CMMS_2"), "C\\# and a\\#b {hashtag|\\#|CMMS\\_2}");
+        assert_eq!(escape_little("Ticket #1042 #2026 #Q4"), "Ticket \\#1042 \\#2026 {hashtag|\\#|Q4}");
         assert_eq!(escape_little("#start and #ünïcode, #"), "{hashtag|\\#|start} and {hashtag|\\#|ünïcode}, \\#");
         assert_eq!(escape_little("##double"), "\\#\\#double");
     }
