@@ -4,6 +4,15 @@ import { handleBatch } from "./mcp/server.ts";
 import { localMediaPath } from "./media.ts";
 import { finishOAuth } from "./oauth.ts";
 import { clickLink, handleMetaWebhook, verifyMetaSignature } from "./automations.ts";
+import { join } from "node:path";
+
+/** <head> tags for the product icon (same markup as the Rust build's ICON_LINKS). */
+const ICON_LINKS = `<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="apple-touch-icon" href="/apple-touch-icon.png">`;
+const ICONS: Record<string, [string, string]> = {
+  "/icon.svg": ["icon.svg", "image/svg+xml"],
+  "/favicon.ico": ["favicon.ico", "image/x-icon"],
+  "/apple-touch-icon.png": ["icon-180.png", "image/png"],
+};
 
 const OPERATOR = config.operator;
 const CONTACT = config.contact;
@@ -12,8 +21,8 @@ if (!CONTACT) console.warn("SIAR_CONTACT is not set: the privacy and terms pages
 const page = (title: string, body: string) =>
   new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} · siar</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}h1{font-size:1.6rem}h2{font-size:1.15rem;margin-top:1.8rem}a{color:#0b5cad}footer{margin-top:3rem;font-size:.9rem;color:#555}</style></head>
-<body>${body}<footer>siar is operated by ${OPERATOR}. Contact: <a href="mailto:${CONTACT}">${CONTACT}</a> · <a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of use</a></footer></body></html>`,
+<title>${title} · siar</title>${ICON_LINKS}<style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}h1{font-size:1.6rem}h2{font-size:1.15rem;margin-top:1.8rem}a{color:#0b5cad}footer{margin-top:3rem;font-size:.9rem;color:#555}.brand{display:inline-flex;align-items:center;gap:.5rem;font-weight:700;color:inherit;text-decoration:none}.brand img{width:2rem;height:2rem}</style></head>
+<body><a class="brand" href="/"><img src="/icon.svg" alt="">siar</a>${body}<footer>siar is operated by ${OPERATOR}. Contact: <a href="mailto:${CONTACT}">${CONTACT}</a> · <a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of use</a></footer></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } },
   );
 
@@ -81,6 +90,8 @@ export function startHttp() {
       const path = url.pathname;
 
       if (path === "/health") return text("ok");
+      const icon = ICONS[path];
+      if (icon) return new Response(Bun.file(join(import.meta.dir, "ui", icon[0])), { headers: { "content-type": icon[1], "cache-control": "public, max-age=86400" } });
       if (path === "/") return page("siar", HOME);
       if (path === "/privacy") return page("Privacy policy", PRIVACY);
       if (path === "/terms") return page("Terms of use", TERMS);
