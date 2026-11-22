@@ -509,6 +509,13 @@ pub fn route(mut req: Request) {
         return;
     }
 
+    if get {
+        if let Some(r) = crate::server::icon_resp(&path) {
+            let _ = req.respond(r);
+            return;
+        }
+    }
+
     if get && parts.len() == 2 && parts[0] == "static" {
         let name = parts[1].to_string();
         return serve_static(req, &name);

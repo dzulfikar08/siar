@@ -17,8 +17,8 @@ fn page_html(title: &str, body: &str) -> String {
     let (op, contact) = (&c.operator, &c.contact);
     format!(
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
-<title>{title} · siar</title><style>body{{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}}h1{{font-size:1.6rem}}h2{{font-size:1.15rem;margin-top:1.8rem}}a{{color:#0b5cad}}footer{{margin-top:3rem;font-size:.9rem;color:#555}}</style></head>
-<body>{body}<footer>siar is operated by {op}. Contact: <a href=\"mailto:{contact}\">{contact}</a> · <a href=\"/privacy\">Privacy policy</a> · <a href=\"/terms\">Terms of use</a></footer></body></html>"
+<title>{title} · siar</title>{ICON_LINKS}<style>body{{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}}h1{{font-size:1.6rem}}h2{{font-size:1.15rem;margin-top:1.8rem}}a{{color:#0b5cad}}footer{{margin-top:3rem;font-size:.9rem;color:#555}}.brand{{display:inline-flex;align-items:center;gap:.5rem;font-weight:700;color:inherit;text-decoration:none}}.brand img{{width:2rem;height:2rem}}</style></head>
+<body><a class=\"brand\" href=\"/\"><img src=\"/icon.svg\" alt=\"\">siar</a>{body}<footer>siar is operated by {op}. Contact: <a href=\"mailto:{contact}\">{contact}</a> · <a href=\"/privacy\">Privacy policy</a> · <a href=\"/terms\">Terms of use</a></footer></body></html>"
     )
 }
 
@@ -126,6 +126,25 @@ pub(crate) fn empty(status: u16) -> Resp {
     Response::from_data(vec![]).with_status_code(status)
 }
 
+/// <head> tags for the product icon, on every page siar serves.
+pub(crate) const ICON_LINKS: &str = "<link rel=\"icon\" href=\"/icon.svg\" type=\"image/svg+xml\"><link rel=\"icon\" href=\"/favicon.ico\" sizes=\"48x48\"><link rel=\"apple-touch-icon\" href=\"/apple-touch-icon.png\">";
+
+/// The product icon files, compiled in; None for other paths.
+pub(crate) fn icon_resp(path: &str) -> Option<Resp> {
+    let (bytes, ct): (&'static [u8], &str) = match path {
+        "/icon.svg" => (include_bytes!("../web/icon.svg"), "image/svg+xml"),
+        "/favicon.ico" => (include_bytes!("../web/favicon.ico"), "image/x-icon"),
+        "/apple-touch-icon.png" => (include_bytes!("../web/icon-180.png"), "image/png"),
+        _ => return None,
+    };
+    Some(
+        Response::from_data(bytes.to_vec())
+            .with_chunked_threshold(usize::MAX)
+            .with_header(header("content-type", ct))
+            .with_header(header("cache-control", "public, max-age=86400")),
+    )
+}
+
 /// Constant-time comparison of the bearer token.
 fn authorized(req: &Request) -> bool {
     let got = req
@@ -201,6 +220,10 @@ fn route_single(mut req: Request) {
     let query = query.to_string();
     let method = req.method().clone();
 
+    if let Some(r) = icon_resp(&path) {
+        let _ = req.respond(r);
+        return;
+    }
     let resp: Resp = match path.as_str() {
         "/health" => text("ok", 200),
         "/" => html("siar", HOME),
