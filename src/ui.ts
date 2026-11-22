@@ -9,7 +9,23 @@ import { effective } from "./posts.ts";
 
 const COOKIE = "siar_ui";
 const MAX_AGE = 60 * 60 * 24 * 30;
-const HTML = join(import.meta.dir, "ui", "calendar.html");
+const DIR = join(import.meta.dir, "ui");
+const HTML = join(DIR, "calendar.html");
+
+/** <head> tags for the product icon; every page siar serves includes them. */
+export const ICON_LINKS = `<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="theme-color" content="#0F1420">`;
+
+const ICONS: Record<string, [string, string]> = {
+  "/icon.svg": ["icon.svg", "image/svg+xml"],
+  "/favicon.ico": ["favicon.ico", "image/x-icon"],
+  "/apple-touch-icon.png": ["icon-180.png", "image/png"],
+};
+
+/** The product icon files, or null for other paths. */
+export function iconResponse(path: string): Response | null {
+  const hit = ICONS[path];
+  return hit ? new Response(Bun.file(join(DIR, hit[0])), { headers: { "content-type": hit[1], "cache-control": "public, max-age=86400" } }) : null;
+}
 
 const sessionValue = () => createHmac("sha256", config.apiToken!).update("siar-ui-session-v1").digest("base64url");
 
@@ -35,12 +51,12 @@ const html = (body: string | Blob, status = 200, extra: Record<string, string> =
   });
 
 const LOGIN = (error = "") => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in · siar</title><meta name="color-scheme" content="light dark"><style>
+<title>Sign in · siar</title>${ICON_LINKS}<meta name="color-scheme" content="light dark"><style>
 body{font:15px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:Canvas;color:CanvasText}
 form{display:grid;gap:.75rem;width:min(22rem,90vw)}h1{font-size:1.3rem;margin:0}p{margin:0;opacity:.7;font-size:.9rem}
 input,button{font:inherit;padding:.6rem .75rem;border-radius:8px;border:1px solid #8886}button{background:#0b5cad;color:#fff;border:0;cursor:pointer}
-.err{color:#c62828;opacity:1}</style></head><body><form method="post" action="/app/login">
-<h1>siar calendar</h1><p>Paste this instance's <code>SIAR_API_TOKEN</code>.</p>${error ? `<p class="err">${error}</p>` : ""}
+.err{color:#c62828;opacity:1}.logo{width:3rem;height:3rem}</style></head><body><form method="post" action="/app/login">
+<img class="logo" src="/icon.svg" alt=""><h1>siar calendar</h1><p>Paste this instance's <code>SIAR_API_TOKEN</code>.</p>${error ? `<p class="err">${error}</p>` : ""}
 <input type="password" name="token" autocomplete="current-password" required autofocus aria-label="API token"><button>Sign in</button></form></body></html>`;
 
 interface Row extends TargetRow {

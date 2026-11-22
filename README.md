@@ -1,4 +1,4 @@
-# siar
+# <img src="docs/img/icon.svg" width="40" height="40" alt="" align="top"> siar
 
 A social media scheduler driven by agents: an MCP server and a CLI, plus a read-only calendar page. Claude Code, Cursor or any agent writes, validates, schedules and publishes posts, and reads the numbers back.
 

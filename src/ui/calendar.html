@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Calendar · siar</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="theme-color" content="#0F1420">
 <style>
 :root{--bg:#f6f6f4;--card:#fff;--line:#e2e2de;--text:#1b1b1a;--muted:#6b6b66;--accent:#0b5cad;--today:#fff6d6;
   --s-scheduled:#2f6fd6;--s-published:#1e8e4f;--s-partial:#c98a00;--s-failed:#d23b3b;--s-draft:#8a8a85;--s-publishing:#7a4fd0;--s-cancelled:#a5a5a0}
@@ -15,6 +16,7 @@ button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--
 button:hover{border-color:var(--muted)}button[aria-pressed=true]{background:var(--text);color:var(--bg);border-color:var(--text)}
 header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
 header h1{font-size:1.15rem;margin:0 .5rem 0 0;min-width:10.5rem}
+.brand{display:inline-flex;align-items:center;gap:.4rem;font-weight:700;font-size:1.05rem;color:var(--text);text-decoration:none;margin-right:.5rem}.brand img{width:1.75rem;height:1.75rem}
 .grow{flex:1}.muted{color:var(--muted)}.small{font-size:.8rem}
 a{color:var(--accent)}
 #filters{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem 1rem;border-bottom:1px solid var(--line)}
@@ -86,6 +88,7 @@ pre.opts{margin:0;font-size:.72rem;background:var(--card);border:1px solid var(-
 </head>
 <body>
 <header>
+  <a class="brand" href="/app" aria-label="siar calendar"><img src="/icon.svg" alt="">siar</a>
   <h1 id="title">…</h1>
   <button id="prev" aria-label="Previous">‹</button><button id="today">Today</button><button id="next" aria-label="Next">›</button>
   <span class="grow"></span>
