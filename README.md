@@ -1,6 +1,6 @@
 # siar
 
-A social media scheduler with no web UI. It is an MCP server and a CLI: Claude Code, Cursor or any agent writes, validates, schedules and publishes posts, and reads the numbers back.
+A social media scheduler driven by agents: an MCP server and a CLI, plus a read-only calendar page. Claude Code, Cursor or any agent writes, validates, schedules and publishes posts, and reads the numbers back.
 
 ![Claude Code schedules one post to X, Threads and LinkedIn with the siar CLI: list-accounts, validate-post, schedule-post](docs/img/demo.gif)
 
@@ -117,6 +117,8 @@ Bun reads `.env` from the working directory, so either start it from the repo or
 bun src/index.ts serve         # behind Caddy/nginx at SIAR_PUBLIC_URL
 claude mcp add --transport http siar https://siar.example.com/mcp --header "Authorization: Bearer $SIAR_API_TOKEN"
 ```
+
+`serve` also has a read-only content calendar at `$SIAR_PUBLIC_URL/app`: month and list views of every post, filtered by account, and a preview of each target as its platform shows it (Instagram, Threads, LinkedIn, YouTube, X), with images, carousels and a video player. Sign in with `SIAR_API_TOKEN`; it sets one cookie derived from the token, so rotating the token signs the browser out. It is one HTML file with no dependencies (`src/ui/calendar.html`).
 
 If you run both against one data directory, set `SIAR_SCHEDULER=off` on the stdio one. Claims are atomic either way.
 

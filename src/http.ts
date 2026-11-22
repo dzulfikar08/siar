@@ -4,6 +4,7 @@ import { handleBatch } from "./mcp/server.ts";
 import { localMediaPath } from "./media.ts";
 import { finishOAuth } from "./oauth.ts";
 import { clickLink, handleMetaWebhook, verifyMetaSignature } from "./automations.ts";
+import { handleUi } from "./ui.ts";
 
 const OPERATOR = config.operator;
 const CONTACT = config.contact;
@@ -44,7 +45,7 @@ const PRIVACY = `<h1>Privacy policy</h1>
 <p>Data is not shared with third parties. Content is sent only to the platform it is published on (for example YouTube for videos uploaded to a YouTube channel). Media files are staged in the operator's own Cloudflare R2 storage so platforms can fetch them.</p>
 
 <h2>Cookies</h2>
-<p>siar has no web interface for end users and stores no cookies on your device.</p>
+<p>siar has no web interface for end users and stores no cookies on your device. The owner's read-only calendar at /app sets one sign-in cookie, for the owner only.</p>
 
 <h2>Retention and deletion</h2>
 <p>Tokens are kept while an account is connected and deleted when it is disconnected. Statistics refreshed from YouTube are updated or deleted within 30 days. To have any stored data deleted, email <a href="mailto:${CONTACT}">${CONTACT}</a>; requests are handled within 7 days.</p>
@@ -84,6 +85,9 @@ export function startHttp() {
       if (path === "/") return page("siar", HOME);
       if (path === "/privacy") return page("Privacy policy", PRIVACY);
       if (path === "/terms") return page("Terms of use", TERMS);
+
+      const ui = await handleUi(req, url);
+      if (ui) return ui;
 
       if (path === "/mcp") {
         if (!authorized(req)) return new Response("Unauthorized", { status: 401, headers: { "www-authenticate": "Bearer" } });

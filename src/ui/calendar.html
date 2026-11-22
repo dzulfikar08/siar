@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Calendar · siar</title>
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--line:#e2e2de;--text:#1b1b1a;--muted:#6b6b66;--accent:#0b5cad;--today:#fff6d6;
+  --s-scheduled:#2f6fd6;--s-published:#1e8e4f;--s-partial:#c98a00;--s-failed:#d23b3b;--s-draft:#8a8a85;--s-publishing:#7a4fd0;--s-cancelled:#a5a5a0}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--card:#1e1e1d;--line:#33332f;--text:#ecece8;--muted:#9a9a94;--accent:#6aa7ff;--today:#2c2814}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.35rem .7rem;cursor:pointer}
+button:hover{border-color:var(--muted)}button[aria-pressed=true]{background:var(--text);color:var(--bg);border-color:var(--text)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+header h1{font-size:1.15rem;margin:0 .5rem 0 0;min-width:10.5rem}
+.grow{flex:1}.muted{color:var(--muted)}.small{font-size:.8rem}
+a{color:var(--accent)}
+#filters{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem 1rem;border-bottom:1px solid var(--line)}
+.chip{display:inline-flex;align-items:center;gap:.35rem;border-radius:999px;padding:.2rem .65rem .2rem .3rem;font-size:.8rem}
+.chip[aria-pressed=false]{opacity:.45}
+.chip[aria-pressed=true]{background:var(--card);color:var(--text);border-color:var(--line)}
+.dot{width:1.15rem;height:1.15rem;border-radius:50%;display:inline-grid;place-items:center;color:#fff;font-size:.6rem;font-weight:700;flex:none}
+main{padding:1rem}
+/* month */
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--line);gap:1px}
+.dow{background:var(--bg);padding:.35rem .5rem;font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.day{background:var(--card);min-height:7.5rem;padding:.3rem;display:flex;flex-direction:column;gap:.2rem}
+.day.out{background:var(--bg)}.day.out .num{opacity:.45}
+.day.today{background:var(--today)}
+.num{font-size:.78rem;color:var(--muted);padding:0 .2rem}
+.item{display:flex;gap:.3rem;align-items:flex-start;text-align:left;width:100%;padding:.25rem .35rem;border-radius:6px;border:0;border-left:3px solid var(--sc);background:color-mix(in srgb,var(--sc) 9%,var(--card));font-size:.76rem;line-height:1.3}
+.item:hover{background:color-mix(in srgb,var(--sc) 18%,var(--card))}
+.item .t{font-variant-numeric:tabular-nums;color:var(--muted);flex:none}
+.item .x{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;flex:1}
+.item .ds{display:flex;flex:none;padding-left:.25rem}.item .ds .dot{width:.95rem;height:.95rem;font-size:.5rem;margin-left:-.25rem;border:1.5px solid var(--card)}
+.item.cancelled .x{text-decoration:line-through}
+.item.draft{border-left-style:dashed}
+.thumb{width:1.9rem;height:1.9rem;border-radius:4px;object-fit:cover;flex:none;background:#0002}
+/* list */
+.list{max-width:52rem;margin:0 auto;display:grid;gap:1rem}
+.list h3{margin:0 0 .4rem;font-size:.85rem;color:var(--muted);font-weight:600}
+.list .item{font-size:.88rem;padding:.5rem .6rem;margin-bottom:.35rem;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--sc)}
+.list .thumb{width:3rem;height:3rem}
+.empty{text-align:center;color:var(--muted);padding:3rem}
+@media (max-width:760px){header h1{min-width:0}.day{min-height:4.5rem}.day .item .x,.day .item .t{display:none}.day .item{padding:.15rem;justify-content:center}}
+/* dialog */
+dialog{border:0;border-radius:14px;padding:0;width:min(60rem,96vw);max-height:92vh;background:var(--bg);color:var(--text);box-shadow:0 20px 60px #0006}
+dialog::backdrop{background:#0008}
+.dh{display:flex;gap:.5rem;align-items:center;padding:.75rem 1rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+.db{display:grid;grid-template-columns:minmax(0,1fr) 17rem;gap:1rem;padding:1rem;overflow:auto;max-height:calc(92vh - 3.5rem)}
+@media (max-width:760px){.db{grid-template-columns:1fr}}
+.tabs{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.75rem}
+.side{font-size:.85rem;display:grid;gap:.6rem;align-content:start}
+.side dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.25rem .6rem}.side dt{color:var(--muted)}.side dd{margin:0;word-break:break-word}
+.badge{display:inline-block;padding:.05rem .45rem;border-radius:999px;font-size:.72rem;font-weight:600;color:#fff;background:var(--sc)}
+.err{color:var(--s-failed);white-space:pre-wrap;word-break:break-word;font-size:.8rem}
+pre.opts{margin:0;font-size:.72rem;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.5rem;overflow:auto;max-height:14rem}
+/* platform previews: a phone-width card */
+.pv{max-width:26rem;margin:0 auto;background:#fff;color:#0f1419;border-radius:12px;border:1px solid #dbdbdb;overflow:hidden;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.pv.dark{background:#101010;color:#f3f5f7;border-color:#333}
+.pv .hd{display:flex;align-items:center;gap:.55rem;padding:.65rem .75rem}
+.pv .av{width:2.2rem;height:2.2rem;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;flex:none;font-size:.9rem}
+.pv .nm{font-weight:600;font-size:.9rem;line-height:1.2}.pv .sub{font-size:.75rem;opacity:.6}
+.pv .tx{white-space:pre-wrap;word-break:break-word;font-size:.9rem;line-height:1.42;padding:0 .75rem .65rem}
+.pv .tx .hl{color:#0a66c2}.pv.dark .tx .hl{color:#70a5ff}
+.pv .more{background:none;border:0;padding:0;color:inherit;opacity:.6;font-size:inherit}
+.pv .acts{display:flex;gap:1.1rem;padding:.55rem .75rem;opacity:.85}.pv .acts svg{width:1.35rem;height:1.35rem}
+.pv .li-acts{display:flex;justify-content:space-around;border-top:1px solid #e8e8e8;padding:.35rem;font-size:.8rem;font-weight:600;color:#666}
+.media{position:relative;background:#000}
+.media .slide{display:none}.media .slide.on{display:block}
+.media img,.media video{display:block;width:100%;max-height:62vh;object-fit:contain;background:#000}
+.media.sq img{aspect-ratio:4/5;object-fit:cover}
+.media .nav{position:absolute;top:50%;transform:translateY(-50%);border:0;border-radius:50%;width:1.9rem;height:1.9rem;padding:0;background:#fffd;color:#000;font-weight:700}
+.media .prev{left:.4rem}.media .next{right:.4rem}
+.media .count{position:absolute;top:.5rem;right:.5rem;background:#000a;color:#fff;border-radius:999px;font-size:.72rem;padding:.1rem .5rem}
+.doc{display:flex;align-items:center;gap:.6rem;padding:1rem;background:#f3f2ef;color:#000;font-size:.85rem}
+.strip{display:flex;gap:.4rem;overflow-x:auto;padding:0 .75rem .6rem 3.5rem}
+.strip img,.strip video{height:15rem;max-width:85%;border-radius:8px;object-fit:cover;background:#000;flex:none}
+.th-wrap{display:flex;gap:.6rem;padding:.75rem .75rem 0}.th-wrap .tx{padding:0 0 .5rem}
+.thread-part{border-top:1px solid #8883;padding-top:.6rem;margin-top:.2rem}
+.yt .vid{background:#000}.yt h4{margin:.6rem .75rem .2rem;font-size:1rem}
+.yt .desc{margin:.5rem .75rem .75rem;background:#f2f2f2;border-radius:10px;padding:.6rem}.yt .desc .tx{padding:0;font-size:.82rem}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">…</h1>
+  <button id="prev" aria-label="Previous">‹</button><button id="today">Today</button><button id="next" aria-label="Next">›</button>
+  <span class="grow"></span>
+  <button id="vMonth" aria-pressed="true">Month</button><button id="vList" aria-pressed="false">List</button>
+  <label class="small"><input type="checkbox" id="showDrafts" checked> Drafts</label>
+  <label class="small"><input type="checkbox" id="showCancelled"> Cancelled</label>
+  <a class="small" href="/app/logout">Sign out</a>
+</header>
+<div id="filters"></div>
+<main id="main"><p class="empty">Loading…</p></main>
+<dialog id="dlg"><div class="dh"><strong id="dTitle"></strong><span id="dBadge"></span><span class="grow"></span><button id="dClose" aria-label="Close">✕</button></div><div class="db" id="dBody"></div></dialog>
+
+<script>
+"use strict";
+const PLAT = {
+  instagram:{c:"#d62976",l:"IG",n:"Instagram"},"instagram-login":{c:"#d62976",l:"IG",n:"Instagram"},"instagram-fb":{c:"#d62976",l:"IG",n:"Instagram"},
+  threads:{c:"#101010",l:"@",n:"Threads"},linkedin:{c:"#0a66c2",l:"in",n:"LinkedIn"},"linkedin-page":{c:"#0a66c2",l:"in",n:"LinkedIn Page"},
+  youtube:{c:"#e00000",l:"▶",n:"YouTube"},x:{c:"#000",l:"X",n:"X"},facebook:{c:"#1877f2",l:"f",n:"Facebook"},tiktok:{c:"#111",l:"♪",n:"TikTok"},
+  pinterest:{c:"#e60023",l:"P",n:"Pinterest"},bluesky:{c:"#1185fe",l:"🦋",n:"Bluesky"},mastodon:{c:"#6364ff",l:"M",n:"Mastodon"},reddit:{c:"#ff4500",l:"r",n:"Reddit"}};
+const plat = p => PLAT[p] || {c:"#666",l:(p||"?")[0].toUpperCase(),n:p};
+const STATUS_ORDER = ["failed","partial","publishing","scheduled","published","draft","cancelled"];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad = n => String(n).padStart(2,"0");
+const dkey = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const hm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+const state = { view: localStorage.siarView || (innerWidth < 760 ? "list" : "month"), cursor: new Date(), data: null, hidden: new Set(JSON.parse(localStorage.siarHidden || "[]")) };
+state.cursor.setDate(1);
+
+function range() {
+  const first = new Date(state.cursor.getFullYear(), state.cursor.getMonth(), 1);
+  const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7)); // Monday first
+  const end = new Date(start); end.setDate(start.getDate() + 42);
+  return { first, start, end };
+}
+
+async function load() {
+  const { start, end } = range();
+  $("#title").textContent = state.cursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const r = await fetch(`/app/api/posts?from=${start.toISOString()}&to=${end.toISOString()}`);
+  if (r.status === 401) return location.reload();
+  if (!r.ok) { $("#main").innerHTML = `<p class="empty">Could not load posts (${r.status}).</p>`; return; }
+  state.data = await r.json();
+  render();
+}
+
+function visiblePosts() {
+  const showD = $("#showDrafts").checked, showC = $("#showCancelled").checked;
+  return state.data.posts.filter(p => (showD || p.status !== "draft") && (showC || p.status !== "cancelled")
+    && p.targets.some(t => !state.hidden.has(t.account_id)));
+}
+
+function renderFilters() {
+  const used = new Set(state.data.posts.flatMap(p => p.targets.map(t => t.account_id)));
+  $("#filters").innerHTML = state.data.accounts.filter(a => used.has(a.id) || a.status === "active").map(a => {
+    const p = plat(a.platform);
+    return `<button class="chip" data-acc="${esc(a.id)}" aria-pressed="${!state.hidden.has(a.id)}" title="${esc(p.n)}"><span class="dot" style="background:${p.c}">${esc(p.l)}</span>${esc(a.handle || a.name)}</button>`;
+  }).join("") + `<span class="grow"></span><span class="small muted" style="align-self:center">Times in ${esc(TZ)}</span>`;
+}
+
+function itemHtml(p, withDate) {
+  const d = new Date(p.at);
+  const ts = p.targets.filter(t => !state.hidden.has(t.account_id));
+  const seen = new Set(); const dots = ts.filter(t => !seen.has(t.platform) && seen.add(t.platform))
+    .map(t => { const q = plat(t.platform); return `<span class="dot" style="background:${q.c}" title="${esc(q.n)}">${esc(q.l)}</span>`; }).join("");
+  const text = (ts[0] || p.targets[0])?.text || "";
+  const m = ts.flatMap(t => t.media)[0];
+  const thumb = !m ? "" : m.kind === "image" ? `<img class="thumb" loading="lazy" src="${esc(m.url)}" alt="">` : m.kind === "video" ? `<video class="thumb" preload="metadata" muted src="${esc(m.url)}#t=0.5"></video>` : "";
+  return `<button class="item ${esc(p.status)}" style="--sc:var(--s-${esc(p.status)})" data-post="${esc(p.id)}" title="${esc(p.status)}">
+    <span class="t">${withDate ? "" : (p.scheduled ? hm(d) : "draft")}</span>${withDate ? thumb : ""}<span class="x">${withDate ? `<span class="t">${p.scheduled ? `${hm(d)} · ${esc(p.status)}` : "draft"}</span><br>` : ""}${esc(text.slice(0,180))}</span><span class="ds">${dots}</span></button>`;
+}
+
+function render() {
+  renderFilters();
+  const posts = visiblePosts();
+  const byDay = {};
+  for (const p of posts) (byDay[dkey(new Date(p.at))] ||= []).push(p);
+  const { first, start } = range();
+  const todayKey = dkey(new Date());
+  if (state.view === "month") {
+    const names = [...Array(7)].map((_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(undefined, { weekday: "short" }));
+    let h = names.map(n => `<div class="dow">${esc(n)}</div>`).join("");
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      const k = dkey(d);
+      h += `<div class="day${d.getMonth() !== first.getMonth() ? " out" : ""}${k === todayKey ? " today" : ""}"><span class="num">${d.getDate()}</span>${(byDay[k] || []).map(p => itemHtml(p, false)).join("")}</div>`;
+    }
+    $("#main").innerHTML = `<div class="grid">${h}</div>`;
+  } else {
+    const keys = Object.keys(byDay).filter(k => k.slice(0,7) === dkey(first).slice(0,7)).sort();
+    $("#main").innerHTML = keys.length ? `<div class="list">${keys.map(k => {
+      const d = new Date(k + "T00:00");
+      return `<section><h3>${esc(d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }))}${k === todayKey ? " · today" : ""}</h3>${byDay[k].map(p => itemHtml(p, true)).join("")}</section>`;
+    }).join("")}</div>` : `<p class="empty">Nothing this month.</p>`;
+  }
+  $("#vMonth").setAttribute("aria-pressed", state.view === "month");
+  $("#vList").setAttribute("aria-pressed", state.view === "list");
+}
+
+/* ---------- previews ---------- */
+const TOKEN = /(https?:\/\/[^\s<>"]+)|(?<![\p{L}\p{N}_])[#@][\p{L}\p{N}_]+(?:\.[\p{L}\p{N}_]+)*/gu;
+function richText(s) {
+  let out = "", last = 0;
+  for (const m of String(s).matchAll(TOKEN)) {
+    out += esc(s.slice(last, m.index));
+    out += m[1] ? `<a class="hl" href="${esc(m[1])}" target="_blank" rel="noopener noreferrer">${esc(m[1])}</a>` : `<span class="hl">${esc(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + esc(s.slice(last));
+}
+function clamp(s, n, lead = "") {
+  if (s.length <= n) return `<div class="tx">${lead}${richText(s)}</div>`;
+  return `<div class="tx">${lead}<span class="short">${richText(s.slice(0, n).trimEnd())}… <button class="more" data-more>more</button></span><span class="full" hidden>${richText(s)}</span></div>`;
+}
+function avatar(t) { const p = plat(t.platform); return `<span class="av" style="background:${p.c}">${esc((t.name || t.handle || "?").trim()[0].toUpperCase())}</span>`; }
+function mediaBox(media, cls = "") {
+  const vis = media.filter(m => m.kind === "image" || m.kind === "video");
+  const docs = media.filter(m => m.kind === "pdf" || m.kind === "other");
+  let h = "";
+  if (vis.length) {
+    h += `<div class="media ${cls}" data-i="0">${vis.map((m, i) => `<div class="slide${i ? "" : " on"}">${m.kind === "video"
+      ? `<video controls playsinline preload="metadata" src="${esc(m.url)}"></video>`
+      : `<img src="${esc(m.url)}" alt="${esc(m.alt || "")}" loading="lazy">`}</div>`).join("")}
+      ${vis.length > 1 ? `<button class="nav prev" data-nav="-1" aria-label="Previous">‹</button><button class="nav next" data-nav="1" aria-label="Next">›</button><span class="count">1/${vis.length}</span>` : ""}</div>`;
+  }
+  h += docs.map(m => `<a class="doc" href="${esc(m.url)}" target="_blank" rel="noopener">📄 <span>${esc(m.filename || "Document")}</span></a>`).join("");
+  return h;
+}
+const ICON = {
+  heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6C19 16.5 12 21 12 21z"/></svg>',
+  chat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.6-5.2A8.5 8.5 0 1 1 21 12z"/></svg>',
+  share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3 11 13M22 3l-7 19-4-9-9-4z"/></svg>',
+  repost:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></svg>'};
+const acts = (...k) => `<div class="acts">${k.map(i => ICON[i]).join("")}</div>`;
+const when = (p) => p.scheduled ? new Date(p.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Draft";
+
+function preview(p, t) {
+  const o = t.options || {}, name = esc(t.name), handle = esc(t.handle || t.name);
+  switch (t.platform) {
+    case "instagram": case "instagram-login": case "instagram-fb": {
+      const story = o.story || o.media_type === "STORIES";
+      return `<div class="pv"><div class="hd">${avatar(t)}<div><div class="nm">${handle}</div><div class="sub">${story ? "Story" : t.media.some(m => m.kind === "video") ? "Reel" : "Post"}${o.collaborators?.length ? " · with " + esc(o.collaborators.join(", ")) : ""}</div></div></div>
+        ${mediaBox(t.media, "sq")}${acts("heart","chat","share")}
+        ${story ? "" : clamp(t.text, 125, `<b>${handle}</b> `)}
+        ${o.first_comment ? `<div class="tx sub">First comment: ${richText(o.first_comment)}</div>` : ""}</div>`;
+    }
+    case "threads": {
+      const parts = [t.text, ...(o.thread || o.replies || []).map(r => typeof r === "string" ? r : r.text || "")];
+      return `<div class="pv dark">${parts.map((s, i) => `<div class="th-wrap${i ? " thread-part" : ""}">${avatar(t)}<div style="flex:1;min-width:0"><div class="nm">${handle} <span class="sub">${i ? "" : esc(when(p))}</span></div>${o.topic_tag && !i ? `<div class="sub">› ${esc(o.topic_tag)}</div>` : ""}${clamp(s, 500)}</div></div>${i ? "" : (t.media.length ? `<div class="strip">${t.media.map(m => m.kind === "video" ? `<video controls playsinline preload="metadata" src="${esc(m.url)}"></video>` : m.kind === "image" ? `<img src="${esc(m.url)}" alt="${esc(m.alt||"")}">` : "").join("")}</div>` : "")}`).join("")}
+        ${o.poll ? `<div class="tx sub">Poll: ${esc([].concat(o.poll.options || o.poll).join(" / "))}</div>` : ""}
+        <div class="acts" style="padding-left:3.5rem">${ICON.heart}${ICON.chat}${ICON.repost}${ICON.share}</div></div>`;
+    }
+    case "linkedin": case "linkedin-page":
+      return `<div class="pv"><div class="hd">${avatar(t)}<div><div class="nm">${name}</div><div class="sub">${esc(when(p))} · 🌐</div></div></div>
+        ${clamp(t.text, 210)}${mediaBox(t.media)}
+        <div class="li-acts"><span>👍 Like</span><span>💬 Comment</span><span>🔁 Repost</span><span>➤ Send</span></div>
+        ${o.first_comment ? `<div class="tx sub" style="padding-top:.5rem">First comment: ${richText(o.first_comment)}</div>` : ""}</div>`;
+    case "youtube": {
+      const v = t.media.find(m => m.kind === "video");
+      return `<div class="pv yt"><div class="vid">${v ? `<video controls playsinline preload="metadata" src="${esc(v.url)}" style="width:100%;max-height:70vh;display:block"></video>` : `<p class="tx" style="color:#fff;padding:2rem">No video</p>`}</div>
+        <h4>${esc(o.title || "(no title)")}</h4><div class="hd" style="padding-top:.2rem">${avatar(t)}<div><div class="nm">${name}</div><div class="sub">${esc(o.privacy || "public")}${o.made_for_kids ? " · made for kids" : ""}</div></div></div>
+        <div class="desc">${clamp(t.text, 160)}</div></div>`;
+    }
+    case "x": {
+      const parts = [t.text, ...(o.thread || [])];
+      return `<div class="pv">${parts.map((s, i) => `<div class="th-wrap${i ? " thread-part" : ""}">${avatar(t)}<div style="flex:1;min-width:0"><div class="nm">${name} <span class="sub">@${handle} · ${esc(when(p))}</span></div>${clamp(s, 280)}${i ? "" : mediaBox(t.media)}</div></div>`).join("")}<div class="acts" style="padding-left:3.5rem">${ICON.chat}${ICON.repost}${ICON.heart}${ICON.share}</div></div>`;
+    }
+    default:
+      return `<div class="pv"><div class="hd">${avatar(t)}<div><div class="nm">${name}</div><div class="sub">${esc(plat(t.platform).n)} · ${esc(when(p))}</div></div></div>${o.title ? `<div class="tx"><b>${esc(o.title)}</b></div>` : ""}${clamp(t.text, 400)}${mediaBox(t.media)}</div>`;
+  }
+}
+
+function openPost(id, idx = 0) {
+  const p = state.data.posts.find(x => x.id === id); if (!p) return;
+  const ts = p.targets;
+  const t = ts[idx];
+  $("#dTitle").textContent = when(p);
+  $("#dBadge").innerHTML = `<span class="badge" style="--sc:var(--s-${esc(p.status)})">${esc(p.status)}</span>`;
+  const tabs = ts.map((x, i) => { const q = plat(x.platform); return `<button class="chip" data-tab="${i}" aria-pressed="${i === idx}"><span class="dot" style="background:${q.c}">${esc(q.l)}</span>${esc(x.handle || x.name)}</button>`; }).join("");
+  const opts = Object.fromEntries(Object.entries(t.options || {}).filter(([, v]) => v !== undefined));
+  $("#dBody").innerHTML = `<div><div class="tabs">${tabs}</div>${t ? preview(p, t) : ""}</div>
+    <div class="side"><dl>
+      <dt>Account</dt><dd>${esc(plat(t.platform).n)} · ${esc(t.handle || t.name)}</dd>
+      <dt>Status</dt><dd><span class="badge" style="--sc:var(--s-${esc(t.status === "pending" ? (p.status === "draft" ? "draft" : "scheduled") : t.status)})">${esc(t.status)}</span></dd>
+      ${t.published_at ? `<dt>Published</dt><dd>${esc(new Date(t.published_at).toLocaleString())}</dd>` : ""}
+      <dt>Characters</dt><dd>${[...t.text].length}</dd>
+      <dt>Media</dt><dd>${t.media.length ? t.media.map(m => `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.kind)}</a>`).join(", ") : "none"}</dd>
+      <dt>Post id</dt><dd><code>${esc(p.id)}</code></dd>
+    </dl>
+    ${t.url ? `<a href="${esc(t.url)}" target="_blank" rel="noopener noreferrer">Open on ${esc(plat(t.platform).n)} ↗</a>` : ""}
+    ${t.error ? `<div class="err">${esc(t.error)}</div>` : ""}
+    ${Object.keys(opts).length ? `<details><summary class="small muted">Options</summary><pre class="opts">${esc(JSON.stringify(opts, null, 2))}</pre></details>` : ""}
+    </div>`;
+  $("#dBody").dataset.post = id;
+  if (!$("#dlg").open) $("#dlg").showModal();
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-post],[data-acc],[data-tab],[data-more],[data-nav]");
+  if (!el) return;
+  if (el.dataset.post && !el.closest("#dlg")) return openPost(el.dataset.post);
+  if (el.dataset.acc) {
+    const id = el.dataset.acc; state.hidden.has(id) ? state.hidden.delete(id) : state.hidden.add(id);
+    localStorage.siarHidden = JSON.stringify([...state.hidden]); return render();
+  }
+  if (el.dataset.tab) { $("#dlg").querySelectorAll("video").forEach(v => v.pause()); return openPost($("#dBody").dataset.post, +el.dataset.tab); }
+  if (el.hasAttribute("data-more")) { const tx = el.closest(".tx"); tx.querySelector(".short").hidden = true; tx.querySelector(".full").hidden = false; return; }
+  if (el.dataset.nav) {
+    const box = el.closest(".media"), slides = box.querySelectorAll(".slide");
+    const i = (+box.dataset.i + +el.dataset.nav + slides.length) % slides.length;
+    slides.forEach((s, j) => { s.classList.toggle("on", j === i); s.querySelector("video")?.pause(); });
+    box.dataset.i = i; box.querySelector(".count").textContent = `${i + 1}/${slides.length}`;
+  }
+});
+$("#dClose").onclick = () => $("#dlg").close();
+$("#dlg").addEventListener("close", () => $("#dlg").querySelectorAll("video").forEach(v => v.pause()));
+$("#dlg").addEventListener("click", e => { if (e.target === $("#dlg")) $("#dlg").close(); });
+const move = n => { state.cursor.setMonth(state.cursor.getMonth() + n); load(); };
+$("#prev").onclick = () => move(-1); $("#next").onclick = () => move(1);
+$("#today").onclick = () => { state.cursor = new Date(); state.cursor.setDate(1); load(); };
+const setView = v => { state.view = localStorage.siarView = v; render(); };
+$("#vMonth").onclick = () => setView("month"); $("#vList").onclick = () => setView("list");
+$("#showDrafts").onchange = render; $("#showCancelled").onchange = render;
+document.addEventListener("keydown", e => {
+  if ($("#dlg").open || e.target.closest("input")) return;
+  if (e.key === "ArrowLeft") move(-1); if (e.key === "ArrowRight") move(1);
+});
+load();
+</script>
+</body>
+</html>

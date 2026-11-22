@@ -27,7 +27,7 @@ export interface PostInput {
 const MAX_ATTEMPTS = 5;
 
 /** Resolve the effective text, media and options of one target. */
-function effective(post: Pick<PostRow, "content" | "media" | "options">, t: Pick<TargetRow, "content" | "media" | "options">, platform: string) {
+export function effective(post: Pick<PostRow, "content" | "media" | "options">, t: Pick<TargetRow, "content" | "media" | "options">, platform: string) {
   const postOpts = json<Record<string, any>>(post.options, {});
   const perPlatform = (postOpts[platform] ?? {}) as Record<string, unknown>;
   const flat = Object.fromEntries(Object.entries(postOpts).filter(([, v]) => typeof v !== "object" || Array.isArray(v) || v === null));
