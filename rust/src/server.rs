@@ -1,5 +1,5 @@
-//! HTTP server (src/http.ts): health, legal pages, /mcp with a bearer token, OAuth callbacks
-//! and local media. One thread per request, like Bun's async handlers never blocking each other.
+//! HTTP server: health, legal pages, /mcp with a bearer token, OAuth callbacks
+//! local media and the /app calendar (ui.rs). Requests never wait behind each other (see dispatch).
 
 use serde_json::Value;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -22,7 +22,7 @@ fn page_html(title: &str, body: &str) -> String {
     )
 }
 
-const HOME: &str = "<h1>siar</h1>
+const HOME: &str = "<h1>A self-hosted social media scheduler</h1>
 <p>siar is a self-hosted social media scheduler. Its owner and their AI agents use it to schedule and publish posts, read comments and messages, and see post statistics for the owner's own accounts on Instagram, Threads, YouTube, LinkedIn and other platforms.</p>
 <p>It has no public sign-up: only accounts connected by the owner are used. It is controlled through the Model Context Protocol (MCP) by the owner's authorized clients.</p>";
 
@@ -58,7 +58,7 @@ fn privacy() -> String {
 <p>Data is not shared with third parties. Content is sent only to the platform it is published on (for example YouTube for videos uploaded to a YouTube channel). Media files are staged in the operator's own Cloudflare R2 storage so platforms can fetch them.</p>
 
 <h2>Cookies</h2>
-<p>siar has no web interface for end users and stores no cookies on your device.</p>
+<p>siar has no web interface for end users and stores no cookies on your device. The owner's read-only calendar at /app sets one sign-in cookie, for the owner only.</p>
 
 <h2>Retention and deletion</h2>
 <p>Tokens are kept while an account is connected and deleted when it is disconnected. Statistics refreshed from YouTube are updated or deleted within 30 days. To have any stored data deleted, email <a href=\"mailto:{contact}\">{contact}</a>; requests are handled within 7 days.</p>
@@ -127,7 +127,7 @@ pub(crate) fn empty(status: u16) -> Resp {
 }
 
 /// <head> tags for the product icon, on every page siar serves.
-pub(crate) const ICON_LINKS: &str = "<link rel=\"icon\" href=\"/icon.svg\" type=\"image/svg+xml\"><link rel=\"icon\" href=\"/favicon.ico\" sizes=\"48x48\"><link rel=\"apple-touch-icon\" href=\"/apple-touch-icon.png\">";
+pub(crate) const ICON_LINKS: &str = "<link rel=\"icon\" href=\"/icon.svg\" type=\"image/svg+xml\"><link rel=\"icon\" href=\"/favicon.ico\" sizes=\"48x48\"><link rel=\"apple-touch-icon\" href=\"/apple-touch-icon.png\"><meta name=\"theme-color\" content=\"#0F1420\">";
 
 /// The product icon files, compiled in; None for other paths.
 pub(crate) fn icon_resp(path: &str) -> Option<Resp> {
@@ -224,9 +224,14 @@ fn route_single(mut req: Request) {
         let _ = req.respond(r);
         return;
     }
+    if path == "/app" || path.starts_with("/app/") {
+        let r = crate::ui::handle(&mut req, &path, &query, &method);
+        let _ = req.respond(r);
+        return;
+    }
     let resp: Resp = match path.as_str() {
         "/health" => text("ok", 200),
-        "/" => html("siar", HOME),
+        "/" => html("Social media scheduler", HOME),
         "/privacy" => html("Privacy policy", &privacy()),
         "/terms" => html("Terms of use", &terms()),
         "/mcp" => {

@@ -1,4 +1,4 @@
-//! TikTok (src/providers/tiktok.ts). Video chunks stream from disk.
+//! TikTok. Video chunks stream from disk.
 
 use serde_json::{json, Map, Value};
 

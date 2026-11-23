@@ -1,4 +1,4 @@
-//! Background loops (src/scheduler.ts): publish due targets, automation jobs, comment/DM polling
+//! Background loops: publish due targets, automation jobs, comment/DM polling
 //! for accounts with automations, metric snapshots, retention purge.
 //!
 //! SIAR_SCHEDULER=off: no loops at all. SIAR_SCHEDULER=dry: the loops tick and query what is

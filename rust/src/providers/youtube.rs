@@ -1,4 +1,4 @@
-//! YouTube (src/providers/google.ts). The resumable upload streams the video from disk.
+//! YouTube. The resumable upload streams the video from disk.
 
 use serde_json::{json, Map, Value};
 

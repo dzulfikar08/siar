@@ -1,0 +1,10 @@
+{
+  "name": "siar",
+  "version": "0.1.0",
+  "description": "Schedule, publish and measure social media posts (X, LinkedIn, Instagram, Threads, TikTok, YouTube, Bluesky, Mastodon and more) through a self-hosted siar server, using the siar CLI",
+  "author": { "name": "Dzulfikar Ats Tsauri" },
+  "homepage": "https://github.com/dzulfikar08/siar",
+  "repository": "https://github.com/dzulfikar08/siar",
+  "license": "AGPL-3.0-only",
+  "keywords": ["social-media", "scheduler", "mcp", "self-hosted", "cli"]
+}

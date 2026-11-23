@@ -1,5 +1,5 @@
 //! Instagram API with Unified Login (Facebook Login for Business), on graph.facebook.com
-//! (src/providers/instagram.ts). The token never expires; no Facebook Page is needed.
+//!. The token never expires; no Facebook Page is needed.
 
 use serde_json::{json, Map, Value};
 

@@ -1,4 +1,4 @@
-//! MCP over JSON-RPC 2.0 (src/mcp/server.ts) and the tool implementations (src/mcp/tools*.ts).
+//! MCP over JSON-RPC 2.0 and the tool implementations.
 //! Tool names, descriptions and input schemas come from meta/tools.json, generated from the TS.
 
 use serde_json::{json, Map, Value};

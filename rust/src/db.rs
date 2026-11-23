@@ -1,5 +1,5 @@
-//! One SQLite connection behind a mutex. Same schema and migrations as src/db.ts, so the
-//! Rust binary opens the Bun version's database as is. Never hold the lock across network calls.
+//! One SQLite connection behind a mutex. Same schema and migrations as the former Bun
+//! version, so it opens that version's database as is. Never hold the lock across network calls.
 
 use rusqlite::{Connection, OptionalExtension, Row};
 use std::sync::{Mutex, OnceLock};

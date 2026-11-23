@@ -1,4 +1,4 @@
-//! Staged media (src/media.ts): a local copy always, plus Cloudflare R2 (hand-rolled SigV4)
+//! Staged media: a local copy always, plus Cloudflare R2 (hand-rolled SigV4)
 //! when configured. Downloads and R2 uploads stream through disk, never whole-file in memory.
 
 use base64::Engine;
@@ -373,7 +373,7 @@ pub fn assert_public_url(m: &MediaRow, platform: &str) -> Result<()> {
     Ok(())
 }
 
-// ---------- SigV4 for R2 (src/lib/sigv4.ts) ----------
+// ---------- SigV4 for R2 ----------
 
 type HmacSha256 = Hmac<Sha256>;
 

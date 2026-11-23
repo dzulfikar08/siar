@@ -1,4 +1,4 @@
-//! Static platform metadata, generated from the TS providers by rust/scripts/dump-meta.ts,
+//! Static platform metadata, generated from the former TypeScript providers (rust/scripts/dump-meta.ts, now removed),
 //! so list_platforms and validation use exactly the same limits and options.
 
 use serde_json::Value;

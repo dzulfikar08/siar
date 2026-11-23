@@ -1,4 +1,4 @@
-//! Comment actions and Instagram DMs (src/engage.ts, the rest is in insights.rs). Text written by
+//! Comment actions and Instagram DMs (the rest is in insights.rs). Text written by
 //! other people is returned wrapped as `{"untrusted": "..."}`.
 
 use rusqlite::params;

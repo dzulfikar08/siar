@@ -31,6 +31,55 @@ pub fn env(k: &str) -> Option<String> {
     std::env::var(k).ok()
 }
 
+/// `KEY=value` pairs of a .env file: blank lines and `#` comments skipped, an optional `export `
+/// prefix and one pair of matching quotes removed.
+pub fn parse_dotenv(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let line = line.strip_prefix("export ").unwrap_or(line);
+            let (k, v) = line.split_once('=')?;
+            let k = k.trim();
+            if k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return None;
+            }
+            let v = v.trim();
+            let v = [('"', '"'), ('\'', '\'')]
+                .iter()
+                .find_map(|(a, b)| v.strip_prefix(*a).and_then(|r| r.strip_suffix(*b)))
+                .unwrap_or(v);
+            Some((k.to_string(), v.to_string()))
+        })
+        .collect()
+}
+
+/// Load `.env` from the working directory, like Bun did. Variables already set win.
+/// Call before any thread starts (it sets process environment variables).
+pub fn load_dotenv() {
+    let Ok(text) = std::fs::read_to_string(".env") else { return };
+    for (k, v) in parse_dotenv(&text) {
+        if std::env::var_os(&k).is_none() {
+            std::env::set_var(k, v);
+        }
+    }
+}
+
+#[cfg(test)]
+mod dotenv_tests {
+    #[test]
+    fn parses_pairs() {
+        let got = super::parse_dotenv("# c\n\nA=1\nexport B = \"two words\"\nC='x=y'\nbad line\nD=\n");
+        let want: Vec<(String, String)> = [("A", "1"), ("B", "two words"), ("C", "x=y"), ("D", "")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        assert_eq!(got, want);
+    }
+}
+
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
 pub fn config() -> &'static Config {

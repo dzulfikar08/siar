@@ -1,7 +1,8 @@
-//! siar command line: `serve`, `mcp` (stdio), `keygen`, and in hosted mode the operator commands
-//! `tenant create`, `key create`, `plan list`, `plan put`, `plan default` and `mail test`.
+//! siar command line: `serve`, `mcp` (stdio), `keygen`, every MCP tool as a command (cli.rs),
+//! and in hosted mode the operator commands `tenant create`, `key create`, `plan list`,
+//! `plan put`, `plan default` and `mail test`.
 
-use siar::{config, control, db, mcp, scheduler, server, tenant, vault};
+use siar::{cli, config, control, db, mcp, scheduler, server, tenant, vault};
 
 // musl's allocator is small but slow with large JSON responses (big allocations are mmapped and
 // unmapped on every request); mimalloc is the default. Build with --no-default-features to compare.
@@ -9,7 +10,7 @@ use siar::{config, control, db, mcp, scheduler, server, tenant, vault};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-const USAGE: &str = "usage: siar [mcp | serve | keygen]
+const USAGE: &str = "usage: siar [mcp | serve | keygen | tools | help <tool> | <tool> --arg value]
 hosted mode (SIAR_MODE=hosted):
   siar tenant create <name>        new workspace with an API key (printed once)
   siar key create <tenant> <name>  another API key for a workspace
@@ -86,6 +87,7 @@ fn admin(args: &[String]) -> siar::util::Result<()> {
 }
 
 fn main() {
+    config::load_dotenv();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().cloned().unwrap_or_else(|| "mcp".into());
     let scheduler_mode = config::env("SIAR_SCHEDULER").unwrap_or_default();
@@ -119,10 +121,8 @@ fn main() {
             Ok(())
         }
         "tenant" | "key" | "plan" | "mail" => admin(&args),
-        _ => {
-            eprintln!("{USAGE}");
-            std::process::exit(1);
-        }
+        // Anything else is the CLI: `siar tools`, `siar help <tool>`, `siar <tool> --arg value`.
+        _ => cli::run(&args),
     };
     if let Err(e) = result {
         eprintln!("{e}");

@@ -1,4 +1,4 @@
-//! Posts, targets, validation, publishing with retries (src/posts.ts).
+//! Posts, targets, validation, publishing with retries.
 
 use rusqlite::params;
 use serde_json::{Map, Value};
@@ -225,7 +225,7 @@ fn target_with_account(r: &rusqlite::Row) -> rusqlite::Result<TargetWithAccount>
 }
 
 /// Posts whose time (scheduled, else created) falls in [from, to), with every target's effective text,
-/// media and options: the data behind the calendar page (src/ui.ts calendarData).
+/// media and options: the data behind the calendar page.
 pub fn calendar_data(from: i64, to: i64) -> Result<Value> {
     db::with(|c| {
         let posts = db::rows(

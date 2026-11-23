@@ -1,5 +1,5 @@
 # siar hosted service (multi-tenant) at app-siar.diatur.com. See rust/HOSTED.md.
-# Separate from the self-hosted Bun `siar` service and the `siar-rs` trial: own binary, data and env.
+# Separate from the self-hosted `siar` service: own binary, data and env.
 [Unit]
 Description=siar hosted (multi-tenant) social media scheduler
 After=network-online.target

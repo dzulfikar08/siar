@@ -1,5 +1,5 @@
 //! Best times, performance vs. usual, metric history, retention purge, ideas board
-//! (src/insights.ts), and the account-posts cache and comments inbox (src/engage.ts).
+//!, and the account-posts cache and comments inbox.
 
 use rusqlite::params;
 use serde_json::{Map, Value};

@@ -1,4 +1,4 @@
-//! Mastodon (src/providers/mastodon.ts).
+//! Mastodon.
 
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};

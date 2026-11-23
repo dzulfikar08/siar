@@ -1,11 +1,14 @@
-# siar
+# <img src="docs/img/icon.svg" width="40" height="40" alt="" align="top"> siar
 
-A social media scheduler with no web UI. It is an MCP server: Claude Code, Cursor or any MCP client writes, validates, schedules and publishes posts, and reads the numbers back.
+A social media scheduler driven by agents: an MCP server and a CLI, plus a read-only calendar page. Claude Code, Cursor or any agent writes, validates, schedules and publishes posts, and reads the numbers back.
+
+![Claude Code schedules one post to X, Threads and LinkedIn with the siar CLI: list-accounts, validate-post, schedule-post](docs/img/demo.gif)
+
+<sub>Replay of a real Claude Code session against a test instance with demo accounts; the commands, outputs and post texts are the session's own, shortened.</sub>
 
 It does what [Postiz](https://github.com/gitroomhq/postiz-app) does for agents, without Postiz's five services (Next.js, NestJS, Temporal, Postgres, Redis):
 
-- one Bun process, `bun:sqlite` in WAL mode
-- zero runtime npm dependencies (`typescript` and `@types/bun` are dev-only)
+- one static Rust binary (about 5 MB), SQLite in WAL mode
 - tokens sealed with AES-256-GCM before they touch the database
 - media staged on disk, or on Cloudflare R2 (hand-rolled SigV4, no AWS SDK)
 - a scheduler with retries, backoff and atomic claims, so two processes never double-post
@@ -94,29 +97,50 @@ Times are ISO 8601 and must carry an offset (`2026-11-17T08:00:00+07:00`); siar 
 ## Run
 
 ```sh
-bun install                    # dev types only
-bun src/index.ts keygen        # prints SIAR_VAULT_KEY and SIAR_API_TOKEN
+cargo install --path rust      # builds siar and puts it on your PATH (or: docker build -t siar .)
+siar keygen                    # prints SIAR_VAULT_KEY and SIAR_API_TOKEN
 cp .env.example .env           # fill in what you use
 ```
 
 **Local, stdio** (Claude Code starts it; the scheduler runs while the session is open):
 
 ```sh
-claude mcp add siar -- bun /path/to/siar/src/index.ts mcp
+claude mcp add siar -- siar mcp
 ```
 
-Bun reads `.env` from the working directory, so either start it from the repo or pass the variables with `-e`.
+siar reads `.env` from the working directory (variables already set win), so either start it from the repo or pass the variables with `-e`.
 
 **Server** (always-on scheduler, OAuth callbacks, HTTP MCP at `/mcp` with a bearer token):
 
 ```sh
-bun src/index.ts serve         # behind Caddy/nginx at SIAR_PUBLIC_URL
+siar serve                     # behind Caddy/nginx at SIAR_PUBLIC_URL
 claude mcp add --transport http siar https://siar.example.com/mcp --header "Authorization: Bearer $SIAR_API_TOKEN"
 ```
 
+`serve` also has a read-only content calendar at `$SIAR_PUBLIC_URL/app`: month and list views of every post, filtered by account, and a preview of each target as its platform shows it (Instagram, Threads, LinkedIn, YouTube, X), with images, carousels and a video player. Sign in with `SIAR_API_TOKEN`; it sets one cookie derived from the token, so rotating the token signs the browser out. It is one HTML file with no dependencies (`rust/web/calendar.html`), compiled into the binary.
+
 If you run both against one data directory, set `SIAR_SCHEDULER=off` on the stdio one. Claims are atomic either way.
 
-`deploy/` has a hardened systemd unit, a Cloudflare Tunnel config template and `deploy.sh <ssh-host>`, which ships the current commit to `/opt/siar/app` and restarts the service. It uses about 35 MB of RAM idle.
+**CLI** (for agents that run shell commands: Claude Code, Codex, OpenClaw). Every MCP tool is also a command that prints JSON:
+
+```sh
+export SIAR_URL=https://siar.example.com SIAR_API_TOKEN=...   # talk to your server
+siar tools                     # list the tools
+siar help schedule-post        # arguments of one tool
+siar schedule-post --content @post.md --targets '["acc_…"]' --at 2026-11-20T08:00:00+07:00
+siar stage-media --path ./cover.jpg --alt "Dashboard screenshot"   # uploads the file to the server
+```
+
+The token stays in the environment, so it never enters the model's context. Without `SIAR_URL` the commands run locally against `SIAR_DATA_DIR` (no scheduler). [`skills/siar/SKILL.md`](skills/siar/SKILL.md) teaches an agent the workflow. In Claude Code, install it as a plugin:
+
+```
+/plugin marketplace add dzulfikar08/siar
+/plugin install siar@siar
+```
+
+Other agents (OpenClaw, Codex): copy `skills/siar/` into their skills folder.
+
+`deploy/` has a hardened systemd unit, a Cloudflare Tunnel config template and `deploy.sh <ssh-host>`, which installs the CI-built binary of the current commit as `/opt/siar/bin/siar` and restarts the service.
 
 Set `SIAR_OPERATOR`, `SIAR_OPERATOR_LOCATION` and `SIAR_CONTACT`: siar serves a home page, `/privacy` and `/terms` with them, and Meta, Google and LinkedIn ask for those URLs when you register your apps.
 
@@ -142,8 +166,9 @@ Platform reviews still apply: TikTok apps post as `SELF_ONLY` until audited, Lin
 ## Development
 
 ```sh
-bun test          # vault, Schnorr vectors, counting, MCP protocol, an end-to-end publish against a fake webhook
-bun run typecheck
+cd rust
+cargo test        # vault, Schnorr vectors, counting, MCP protocol, an end-to-end publish against a fake webhook
+cargo fmt --check
 ```
 
 Tests run Discord end to end against a fake webhook, and Instagram/Threads publishing, comment-to-DM, the follow gate (through signed webhooks), best times and the ideas board against a fake Graph API. See [Status](#status) for what has been run against live accounts.

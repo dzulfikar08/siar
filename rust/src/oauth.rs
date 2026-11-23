@@ -1,4 +1,4 @@
-//! OAuth start and callback (src/oauth.ts).
+//! OAuth start and callback.
 
 use base64::Engine;
 use rusqlite::params;

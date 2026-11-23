@@ -1,4 +1,4 @@
-//! Post checks against platform limits (src/validate.ts).
+//! Post checks against platform limits.
 
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
@@ -244,7 +244,7 @@ mod ts_fixture {
     use serde_json::Value;
 
     /// Escaping, keyword matching and counting on tricky inputs, against the TS output
-    /// (rust/scripts/dump-meta.ts writes the fixture).
+    /// (written by the former rust/scripts/dump-meta.ts from the TypeScript build).
     #[test]
     fn text_handling_matches_the_ts() {
         let f: Value = serde_json::from_str(include_str!("meta/text-fixture.json")).unwrap();

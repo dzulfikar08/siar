@@ -6,10 +6,10 @@ Wants=network-online.target
 [Service]
 User=siar
 Group=siar
-WorkingDirectory=/opt/siar/app
+WorkingDirectory=/opt/siar/data
 EnvironmentFile=/opt/siar/.env
 Environment=SIAR_DATA_DIR=/opt/siar/data
-ExecStart=/usr/local/bin/bun src/index.ts serve
+ExecStart=/opt/siar/bin/siar serve
 Restart=always
 RestartSec=3
 # Let a publish in flight finish before a stop.
