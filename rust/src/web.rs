@@ -557,6 +557,8 @@ pub fn route(mut req: Request) {
         },
         (["logout"], _, true) => logout(&mut req),
         (["dashboard"], true, _) => with_session(&req, |s| dashboard(&req, s, &query, None)),
+        (["dashboard", "calendar"], true, _) => with_session(&req, |_| calendar_page()),
+        (["dashboard", "calendar", "api", "posts"], true, _) => calendar_api(&req, &query),
         (["dashboard", ..], _, true) => dashboard_post(&mut req, &parts[1..]),
         (["dashboard", "connect", platform], true, _) => with_session(&req, |s| credential_form(&req, s, platform)),
         (["dashboard", "billing", "polar", plan], true, _) => with_session(&req, |s| match control::plan(plan).ok().flatten() {
@@ -1356,6 +1358,38 @@ fn dashboard(_req: &Request, s: &Session, query: &str, shown_key: Option<(String
     .with_header(header("x-frame-options", "DENY"))
 }
 
+// ---------- content calendar (the same page as /app on a single-user siar) ----------
+
+const CALENDAR: &str = include_str!("../web/calendar.html");
+const CALENDAR_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src * data: blob:; media-src *; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+
+fn calendar_page() -> Resp {
+    let html = CALENDAR
+        .replace("href=\"/app\" aria-label", "href=\"/dashboard/calendar\" aria-label")
+        .replace("<a class=\"small\" href=\"/app/logout\">Sign out</a>", "<a class=\"small\" href=\"/dashboard\">Dashboard</a>");
+    Response::from_string(html)
+        .with_chunked_threshold(usize::MAX)
+        .with_header(header("content-type", "text/html; charset=utf-8"))
+        .with_header(header("content-security-policy", CALENDAR_CSP))
+        .with_header(header("referrer-policy", "no-referrer"))
+        .with_header(header("cache-control", "no-store"))
+}
+
+/// Read-only posts for the calendar: `?from&to` as ISO dates at most 100 days apart.
+fn calendar_api(req: &Request, query: &str) -> Resp {
+    let Ok(Some(s)) = session(req) else { return json_resp(&json!({"error": "signed out"}), 401) };
+    let from = query_param(query, "from").and_then(|v| crate::util::parse_iso(&v));
+    let to = query_param(query, "to").and_then(|v| crate::util::parse_iso(&v));
+    let (Some(from), Some(to)) = (from, to) else { return json_resp(&json!({"error": "give from and to as ISO dates, at most 100 days apart"}), 400) };
+    if to <= from || to - from > 100 * 86_400_000 {
+        return json_resp(&json!({"error": "give from and to as ISO dates, at most 100 days apart"}), 400);
+    }
+    match in_tenant(&s.tenant, || crate::posts::calendar_data(from, to)) {
+        Ok(v) => json_resp(&v, 200).with_header(header("cache-control", "no-store")),
+        Err(e) => json_resp(&json!({"error": e.to_string()}), 500),
+    }
+}
+
 /// The setup guide in docs/setup/ for an app prefix.
 fn setup_guide(prefix: &str) -> (&'static str, &'static str) {
     match prefix {
@@ -1384,7 +1418,7 @@ fn dashboard_body(s: &Session, query: &str, shown_key: Option<(String, String)>)
     let grants = control::with(|c| crate::authz::grants(c, &s.tenant))?;
     let mut b = format!(
         "<div class=\"wrap\"><div class=\"dash-head\"><div><h1>Dashboard</h1><p>Signed in as {}. Workspace <code>{}</code>. Plan <span class=\"plan-tag\">{}</span></p></div>\
-<form class=\"inline\" method=\"post\" action=\"/logout\">{csrf}<button class=\"ghost small\">Sign out</button></form></div>",
+<div class=\"actions\"><a class=\"btn small\" href=\"/dashboard/calendar\">Content calendar</a><form class=\"inline\" method=\"post\" action=\"/logout\">{csrf}<button class=\"ghost small\">Sign out</button></form></div></div>",
         esc(s.email.as_deref().unwrap_or("(no email)")),
         esc(&s.tenant),
         esc(&plan.name)
