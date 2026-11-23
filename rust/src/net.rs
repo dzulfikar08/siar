@@ -1,4 +1,4 @@
-//! Outgoing HTTP (src/lib/http.ts): blocking ureq with rustls. Non-2xx answers become
+//! Outgoing HTTP: blocking ureq with rustls. Non-2xx answers become
 //! Error::Http with the body, like HttpError. Request bodies can stream from a file.
 
 use serde_json::Value;

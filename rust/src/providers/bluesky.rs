@@ -1,4 +1,4 @@
-//! Bluesky (src/providers/bluesky.ts).
+//! Bluesky.
 
 use serde_json::{json, Map, Value};
 

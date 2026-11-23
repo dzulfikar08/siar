@@ -1,4 +1,4 @@
-//! Facebook Pages, and Instagram through a Facebook Page (src/providers/meta.ts).
+//! Facebook Pages, and Instagram through a Facebook Page.
 
 use serde_json::{json, Map, Value};
 

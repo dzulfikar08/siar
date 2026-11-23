@@ -1,5 +1,5 @@
-//! siar, Rust port: MCP server (HTTP and stdio), scheduler, automations and every platform of the
-//! Bun version. Same database, vault and env vars, so either binary can run on the same data.
+//! siar: MCP server (HTTP and stdio), CLI, scheduler, automations, every platform, and the
+//! read-only calendar page. It opens databases written by the former Bun version as they are.
 
 pub mod accounts;
 pub mod automations;
@@ -17,6 +17,7 @@ pub mod posts;
 pub mod providers;
 pub mod scheduler;
 pub mod server;
+pub mod ui;
 pub mod unicode_tables;
 pub mod util;
 pub mod validate;

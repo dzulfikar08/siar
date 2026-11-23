@@ -1,5 +1,5 @@
-//! HTTP server (src/http.ts): health, legal pages, /mcp with a bearer token, OAuth callbacks
-//! and local media. One thread per request, like Bun's async handlers never blocking each other.
+//! HTTP server: health, legal pages, /mcp with a bearer token, OAuth callbacks
+//! local media and the /app calendar (ui.rs). Requests never wait behind each other (see dispatch).
 
 use serde_json::Value;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,12 +17,12 @@ fn page_html(title: &str, body: &str) -> String {
     let (op, contact) = (&c.operator, &c.contact);
     format!(
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
-<title>{title} · siar</title><style>body{{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}}h1{{font-size:1.6rem}}h2{{font-size:1.15rem;margin-top:1.8rem}}a{{color:#0b5cad}}footer{{margin-top:3rem;font-size:.9rem;color:#555}}</style></head>
-<body>{body}<footer>siar is operated by {op}. Contact: <a href=\"mailto:{contact}\">{contact}</a> · <a href=\"/privacy\">Privacy policy</a> · <a href=\"/terms\">Terms of use</a></footer></body></html>"
+<title>{title} · siar</title>{ICON_LINKS}<style>body{{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}}h1{{font-size:1.6rem}}h2{{font-size:1.15rem;margin-top:1.8rem}}a{{color:#0b5cad}}footer{{margin-top:3rem;font-size:.9rem;color:#555}}.brand{{display:inline-flex;align-items:center;gap:.5rem;font-weight:700;color:inherit;text-decoration:none}}.brand img{{width:2rem;height:2rem}}</style></head>
+<body><a class=\"brand\" href=\"/\"><img src=\"/icon.svg\" alt=\"\">siar</a>{body}<footer>siar is operated by {op}. Contact: <a href=\"mailto:{contact}\">{contact}</a> · <a href=\"/privacy\">Privacy policy</a> · <a href=\"/terms\">Terms of use</a></footer></body></html>"
     )
 }
 
-const HOME: &str = "<h1>siar</h1>
+const HOME: &str = "<h1>A self-hosted social media scheduler</h1>
 <p>siar is a self-hosted social media scheduler. Its owner and their AI agents use it to schedule and publish posts, read comments and messages, and see post statistics for the owner's own accounts on Instagram, Threads, YouTube, LinkedIn and other platforms.</p>
 <p>It has no public sign-up: only accounts connected by the owner are used. It is controlled through the Model Context Protocol (MCP) by the owner's authorized clients.</p>";
 
@@ -58,7 +58,7 @@ fn privacy() -> String {
 <p>Data is not shared with third parties. Content is sent only to the platform it is published on (for example YouTube for videos uploaded to a YouTube channel). Media files are staged in the operator's own Cloudflare R2 storage so platforms can fetch them.</p>
 
 <h2>Cookies</h2>
-<p>siar has no web interface for end users and stores no cookies on your device.</p>
+<p>siar has no web interface for end users and stores no cookies on your device. The owner's read-only calendar at /app sets one sign-in cookie, for the owner only.</p>
 
 <h2>Retention and deletion</h2>
 <p>Tokens are kept while an account is connected and deleted when it is disconnected. Statistics refreshed from YouTube are updated or deleted within 30 days. To have any stored data deleted, email <a href=\"mailto:{contact}\">{contact}</a>; requests are handled within 7 days.</p>
@@ -85,7 +85,7 @@ fn terms() -> String {
 }
 
 /// A response header; bytes a header cannot carry (non-ASCII, control characters) are percent-encoded.
-fn header(k: &str, v: &str) -> Header {
+pub(crate) fn header(k: &str, v: &str) -> Header {
     let safe: String = v
         .bytes()
         .map(|b| {
@@ -99,9 +99,9 @@ fn header(k: &str, v: &str) -> Header {
     Header::from_bytes(k.as_bytes(), safe.as_bytes()).unwrap_or_else(|_| Header::from_bytes(&b"x-invalid"[..], &b"1"[..]).expect("static header"))
 }
 
-type Resp = Response<std::io::Cursor<Vec<u8>>>;
+pub(crate) type Resp = Response<std::io::Cursor<Vec<u8>>>;
 
-fn text(body: &str, status: u16) -> Resp {
+pub(crate) fn text(body: &str, status: u16) -> Resp {
     Response::from_string(format!("{body}\n"))
         .with_chunked_threshold(usize::MAX)
         .with_status_code(status)
@@ -114,7 +114,7 @@ fn html(title: &str, body: &str) -> Resp {
         .with_header(header("content-type", "text/html; charset=utf-8"))
 }
 
-fn json_resp(v: &Value, status: u16) -> Resp {
+pub(crate) fn json_resp(v: &Value, status: u16) -> Resp {
     // One write with a Content-Length instead of 8 KB chunks.
     Response::from_data(serde_json::to_vec(v).unwrap_or_default())
         .with_chunked_threshold(usize::MAX)
@@ -122,8 +122,27 @@ fn json_resp(v: &Value, status: u16) -> Resp {
         .with_header(header("content-type", "application/json;charset=utf-8"))
 }
 
-fn empty(status: u16) -> Resp {
+pub(crate) fn empty(status: u16) -> Resp {
     Response::from_data(vec![]).with_status_code(status)
+}
+
+/// <head> tags for the product icon, on every page siar serves.
+pub(crate) const ICON_LINKS: &str = "<link rel=\"icon\" href=\"/icon.svg\" type=\"image/svg+xml\"><link rel=\"icon\" href=\"/favicon.ico\" sizes=\"48x48\"><link rel=\"apple-touch-icon\" href=\"/apple-touch-icon.png\"><meta name=\"theme-color\" content=\"#0F1420\">";
+
+/// The product icon files, compiled in; None for other paths.
+pub(crate) fn icon_resp(path: &str) -> Option<Resp> {
+    let (bytes, ct): (&'static [u8], &str) = match path {
+        "/icon.svg" => (include_bytes!("../web/icon.svg"), "image/svg+xml"),
+        "/favicon.ico" => (include_bytes!("../web/favicon.ico"), "image/x-icon"),
+        "/apple-touch-icon.png" => (include_bytes!("../web/icon-180.png"), "image/png"),
+        _ => return None,
+    };
+    Some(
+        Response::from_data(bytes.to_vec())
+            .with_chunked_threshold(usize::MAX)
+            .with_header(header("content-type", ct))
+            .with_header(header("cache-control", "public, max-age=86400")),
+    )
 }
 
 /// Constant-time comparison of the bearer token.
@@ -149,7 +168,7 @@ fn authorized(req: &Request) -> bool {
     got.bytes().zip(want.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
 
-fn query_param(query: &str, key: &str) -> Option<String> {
+pub(crate) fn query_param(query: &str, key: &str) -> Option<String> {
     for pair in query.split('&') {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
         if decode(k) == key {
@@ -159,7 +178,7 @@ fn query_param(query: &str, key: &str) -> Option<String> {
     None
 }
 
-fn decode(s: &str) -> String {
+pub(crate) fn decode(s: &str) -> String {
     let s = s.replace('+', " ");
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -194,9 +213,18 @@ fn route(mut req: Request) {
     let query = query.to_string();
     let method = req.method().clone();
 
+    if let Some(r) = icon_resp(&path) {
+        let _ = req.respond(r);
+        return;
+    }
+    if path == "/app" || path.starts_with("/app/") {
+        let r = crate::ui::handle(&mut req, &path, &query, &method);
+        let _ = req.respond(r);
+        return;
+    }
     let resp: Resp = match path.as_str() {
         "/health" => text("ok", 200),
-        "/" => html("siar", HOME),
+        "/" => html("Social media scheduler", HOME),
         "/privacy" => html("Privacy policy", &privacy()),
         "/terms" => html("Terms of use", &terms()),
         "/mcp" => {

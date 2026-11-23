@@ -1,4 +1,4 @@
-//! Posts, targets, validation, publishing with retries (src/posts.ts).
+//! Posts, targets, validation, publishing with retries.
 
 use rusqlite::params;
 use serde_json::{Map, Value};
@@ -216,6 +216,99 @@ type TargetWithAccount = (TargetRow, String, String, Option<String>);
 
 fn target_with_account(r: &rusqlite::Row) -> rusqlite::Result<TargetWithAccount> {
     Ok((TargetRow::from(r)?, r.get(13)?, r.get(14)?, r.get(15)?))
+}
+
+/// Posts whose time (scheduled, else created) falls in [from, to), with every target's effective text,
+/// media and options: the data behind the calendar page.
+pub fn calendar_data(from: i64, to: i64) -> Result<Value> {
+    db::with(|c| {
+        let posts = db::rows(
+            c,
+            &format!(
+                "SELECT {} FROM posts WHERE COALESCE(scheduled_at, created_at) >= ? AND COALESCE(scheduled_at, created_at) < ? ORDER BY COALESCE(scheduled_at, created_at) LIMIT 2000",
+                PostRow::COLS
+            ),
+            params![from, to],
+            PostRow::from,
+        )?;
+        let accounts = db::rows(c, "SELECT id, platform, name, handle, status FROM accounts ORDER BY platform, name", [], |r| {
+            Ok(Obj::new()
+                .set("id", r.get::<_, String>(0)?)
+                .set("platform", r.get::<_, String>(1)?)
+                .set("name", r.get::<_, String>(2)?)
+                .set("handle", r.get::<_, Option<String>>(3)?)
+                .set("status", r.get::<_, String>(4)?)
+                .build())
+        })?;
+        let mut out = Vec::with_capacity(posts.len());
+        for p in &posts {
+            let targets = db::rows(
+                c,
+                &format!(
+                    "SELECT {}, a.platform, a.name AS account_name, a.handle FROM targets t JOIN accounts a ON a.id = t.account_id WHERE t.post_id = ?",
+                    TargetRow::COLS
+                ),
+                [&p.id],
+                target_with_account,
+            )?;
+            let mut ts = Vec::with_capacity(targets.len());
+            for (t, platform, name, handle) in &targets {
+                let (text, ids, options) = effective(&p.content, &p.media, &p.options, t.content.as_deref(), t.media.as_deref(), &t.options, platform);
+                ts.push(
+                    Obj::new()
+                        .set("account_id", t.account_id.clone())
+                        .set("platform", platform.clone())
+                        .set("name", name.clone())
+                        .set("handle", handle.clone())
+                        .set("status", t.status.clone())
+                        .set("text", text)
+                        .set("media", calendar_media(c, &ids)?)
+                        .set("options", options)
+                        .opt("url", t.remote_url.clone())
+                        .opt("error", t.error.clone())
+                        .opt("published_at", t.published_at.map(iso))
+                        .build(),
+                );
+            }
+            out.push(
+                Obj::new()
+                    .set("id", p.id.clone())
+                    .set("status", p.status.clone())
+                    .set("at", iso(p.scheduled_at.unwrap_or(p.created_at)))
+                    .set("scheduled", p.scheduled_at.is_some())
+                    .set("targets", ts)
+                    .build(),
+            );
+        }
+        Ok(Obj::new().set("accounts", accounts).set("posts", out).build())
+    })
+}
+
+fn calendar_media(c: &rusqlite::Connection, ids: &[String]) -> Result<Vec<Value>> {
+    let mut out = Vec::new();
+    for id in ids {
+        let row = db::opt_row(c, "SELECT mime, url, alt, filename FROM media WHERE id = ?", [id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })?;
+        if let Some((mime, url, alt, filename)) = row {
+            out.push(
+                Obj::new()
+                    .set("id", id.clone())
+                    .set("url", url)
+                    .set("kind", crate::media::kind_of(&mime))
+                    .set("mime", mime)
+                    .opt("alt", alt)
+                    .set("filename", filename)
+                    .build(),
+            );
+        }
+    }
+    Ok(out)
 }
 
 pub fn get_post(id: &str) -> Result<Value> {

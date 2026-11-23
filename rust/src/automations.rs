@@ -1,4 +1,4 @@
-//! Automations (src/automations.ts): comment replies, comment-to-DM, DM keywords, story replies and
+//! Automations: comment replies, comment-to-DM, DM keywords, story replies and
 //! mentions, default replies; human-like delays through the jobs table, follow gate, click tracking,
 //! polling and Meta webhooks.
 

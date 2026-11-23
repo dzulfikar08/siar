@@ -1,4 +1,4 @@
-//! Pinterest (src/providers/pinterest.ts).
+//! Pinterest.
 
 use base64::Engine;
 use serde_json::{json, Map, Value};

@@ -1,4 +1,4 @@
-//! Google Business Profile (src/providers/google.ts).
+//! Google Business Profile.
 
 use serde_json::{json, Map, Value};
 

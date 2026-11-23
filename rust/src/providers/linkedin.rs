@@ -1,4 +1,4 @@
-//! LinkedIn personal profile and Company Page (src/providers/linkedin.ts). Uploads stream from
+//! LinkedIn personal profile and Company Page. Uploads stream from
 //! disk: images/PDFs as one PUT, videos part by part from file offsets.
 
 use serde_json::{json, Map, Value};

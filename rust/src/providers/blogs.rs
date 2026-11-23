@@ -1,4 +1,4 @@
-//! DEV, Hashnode, WordPress, Medium and Lemmy (src/providers/blogs.ts).
+//! DEV, Hashnode, WordPress, Medium and Lemmy.
 
 use serde_json::{json, Map, Value};
 

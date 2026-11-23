@@ -1,4 +1,4 @@
-//! Connected accounts and their sealed tokens (src/accounts.ts).
+//! Connected accounts and their sealed tokens.
 
 use rusqlite::params;
 use serde_json::Value;

@@ -2,8 +2,7 @@ name: rust
 
 on:
   push:
-    branches: [main, rust-port]
-    paths: ["rust/**", ".github/workflows/rust.yml"]
+    branches: [main]
   workflow_dispatch:
 
 defaults:
@@ -64,6 +63,15 @@ jobs:
           $bin serve & pid=$!
           sleep 1
           curl -sf localhost:18787/health
+          # Icon and the /app calendar: sign-in page, token sign-in, then the JSON with the cookie.
+          curl -sf -o /dev/null localhost:18787/icon.svg
+          curl -sf localhost:18787/app | grep -q 'name="token"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:18787/app/api/posts)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' --data-urlencode token=wrong localhost:18787/app/login)" = 401
+          jar=$(mktemp)
+          test "$(curl -s -c $jar -o /dev/null -w '%{http_code}' --data-urlencode "token=$SIAR_API_TOKEN" localhost:18787/app/login)" = 303
+          curl -sf -b $jar localhost:18787/app | grep -q 'api/posts'
+          curl -sf -b $jar "localhost:18787/app/api/posts?from=2026-11-01T00:00:00.000Z&to=2026-12-01T00:00:00.000Z" | grep -q '"posts"'
           curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:18787/mcp
           curl -sf -X POST localhost:18787/mcp -H "authorization: Bearer $SIAR_API_TOKEN" -H 'content-type: application/json' \
             -d '[{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"status","arguments":{}}},{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_idea","arguments":{"title":"smoke"}}}]' | head -c 1500; echo

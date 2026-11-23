@@ -1,4 +1,4 @@
-//! X (src/providers/x.ts). Video chunks stream from disk.
+//! X. Video chunks stream from disk.
 
 use serde_json::{json, Map, Value};
 use std::time::{Duration, Instant};

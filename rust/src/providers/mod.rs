@@ -486,7 +486,7 @@ pub fn context(platform: &str, ctx: &Ctx, id: &str) -> Result<(RemotePost, Vec<R
 
 // ---------- shared helpers ----------
 
-/// Poll `f` until it returns Some, with a cap (src/lib/http.ts poll).
+/// Poll `f` until it returns Some, with a cap .
 pub fn poll<T>(every_ms: u64, max_ms: u64, what: &str, mut f: impl FnMut() -> Result<Option<T>>) -> Result<T> {
     let deadline = Instant::now() + Duration::from_millis(max_ms);
     loop {
@@ -542,7 +542,7 @@ pub fn put(m: &mut Map<String, Value>, k: &str, v: Option<Value>) {
     }
 }
 
-/// The token request with the client credentials, as basic auth or in the form (src/grant.ts clientParams).
+/// The token request with the client credentials, as basic auth or in the form.
 fn client_params(spec: &OAuthSpec) -> Result<(net::Req, Vec<(&'static str, Option<String>)>)> {
     let (id, secret) = app_creds(spec.env)?;
     let mut rq = net::post(&spec.token_url).header("accept", "application/json");
@@ -558,7 +558,7 @@ fn client_params(spec: &OAuthSpec) -> Result<(net::Req, Vec<(&'static str, Optio
     Ok((rq, form))
 }
 
-/// Token endpoint: authorization_code grant (src/grant.ts exchangeCode).
+/// Token endpoint: authorization_code grant.
 pub fn exchange_code(spec: &OAuthSpec, platform: &str, code: &str, verifier: &str) -> Result<Value> {
     let (rq, mut form) = client_params(spec)?;
     form.push(("grant_type", Some("authorization_code".into())));

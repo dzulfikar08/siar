@@ -1,4 +1,4 @@
-//! Reddit (src/providers/reddit.ts).
+//! Reddit.
 
 use serde_json::{json, Map, Value};
 

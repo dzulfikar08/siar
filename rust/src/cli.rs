@@ -1,4 +1,4 @@
-//! Command-line access to the MCP tools (src/cli.ts): `siar tools`, `siar help <tool>`,
+//! Command-line access to the MCP tools: `siar tools`, `siar help <tool>`,
 //! `siar <tool> --arg value`. One line per call for agents that run shell commands, and the API
 //! token stays in the environment instead of the model's context.
 //!

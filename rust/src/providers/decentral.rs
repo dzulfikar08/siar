@@ -1,4 +1,4 @@
-//! Nostr and Farcaster (src/providers/decentral.ts, src/lib/schnorr.ts).
+//! Nostr and Farcaster.
 //! BIP-340 signatures come from k256 (RustCrypto); relays are spoken to over a small
 //! blocking WebSocket client on rustls.
 

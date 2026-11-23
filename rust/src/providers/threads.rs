@@ -1,4 +1,4 @@
-//! Threads (src/providers/meta.ts, Threads part).
+//! Threads.
 
 use serde_json::{json, Map, Value};
 

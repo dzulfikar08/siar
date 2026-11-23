@@ -9,6 +9,7 @@ use siar::{cli, config, db, mcp, scheduler, server, vault};
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() {
+    config::load_dotenv();
     let cmd = std::env::args().nth(1).unwrap_or_else(|| "mcp".into());
     let scheduler_mode = config::env("SIAR_SCHEDULER").unwrap_or_default();
     let result = match cmd.as_str() {

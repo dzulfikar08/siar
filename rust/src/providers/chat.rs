@@ -1,4 +1,4 @@
-//! Telegram, Discord and Slack (src/providers/chat.ts).
+//! Telegram, Discord and Slack.
 
 use serde_json::{json, Map, Value};
 

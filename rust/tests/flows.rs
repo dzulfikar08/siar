@@ -1,4 +1,4 @@
-//! Ports of test/core.test.ts and test/engage.test.ts: the MCP tools end to end against fake
+//! The MCP tools end to end against fake
 //! platforms (a Discord webhook, and the Instagram and Threads Graph APIs). One test function,
 //! because the config, database and environment are process-wide.
 
