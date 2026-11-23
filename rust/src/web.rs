@@ -1364,9 +1364,10 @@ const CALENDAR: &str = include_str!("../web/calendar.html");
 const CALENDAR_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src * data: blob:; media-src *; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
 fn calendar_page() -> Resp {
-    let html = CALENDAR
-        .replace("href=\"/app\" aria-label", "href=\"/dashboard/calendar\" aria-label")
-        .replace("<a class=\"small\" href=\"/app/logout\">Sign out</a>", "<a class=\"small\" href=\"/dashboard\">Dashboard</a>");
+    let html = CALENDAR.replace("href=\"/app\" aria-label", "href=\"/dashboard/calendar\" aria-label").replace(
+        "<a class=\"small\" href=\"/app/logout\">Sign out</a>",
+        "<a class=\"small\" href=\"/dashboard\">Dashboard</a>",
+    );
     Response::from_string(html)
         .with_chunked_threshold(usize::MAX)
         .with_header(header("content-type", "text/html; charset=utf-8"))
@@ -1377,10 +1378,14 @@ fn calendar_page() -> Resp {
 
 /// Read-only posts for the calendar: `?from&to` as ISO dates at most 100 days apart.
 fn calendar_api(req: &Request, query: &str) -> Resp {
-    let Ok(Some(s)) = session(req) else { return json_resp(&json!({"error": "signed out"}), 401) };
+    let Ok(Some(s)) = session(req) else {
+        return json_resp(&json!({"error": "signed out"}), 401);
+    };
     let from = query_param(query, "from").and_then(|v| crate::util::parse_iso(&v));
     let to = query_param(query, "to").and_then(|v| crate::util::parse_iso(&v));
-    let (Some(from), Some(to)) = (from, to) else { return json_resp(&json!({"error": "give from and to as ISO dates, at most 100 days apart"}), 400) };
+    let (Some(from), Some(to)) = (from, to) else {
+        return json_resp(&json!({"error": "give from and to as ISO dates, at most 100 days apart"}), 400);
+    };
     if to <= from || to - from > 100 * 86_400_000 {
         return json_resp(&json!({"error": "give from and to as ISO dates, at most 100 days apart"}), 400);
     }

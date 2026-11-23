@@ -294,7 +294,12 @@ fn calendar_media(c: &rusqlite::Connection, ids: &[String]) -> Result<Vec<Value>
     let mut out = Vec::new();
     for id in ids {
         let row = db::opt_row(c, "SELECT mime, url, alt, filename FROM media WHERE id = ?", [id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, String>(3)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, String>(3)?,
+            ))
         })?;
         if let Some((mime, url, alt, filename)) = row {
             out.push(
