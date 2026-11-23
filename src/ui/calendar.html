@@ -130,7 +130,7 @@ function range() {
 async function load() {
   const { start, end } = range();
   $("#title").textContent = state.cursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  const r = await fetch(`/app/api/posts?from=${start.toISOString()}&to=${end.toISOString()}`);
+  const r = await fetch(`${location.pathname.replace(/\/+$/, "")}/api/posts?from=${start.toISOString()}&to=${end.toISOString()}`);
   if (r.status === 401) return location.reload();
   if (!r.ok) { $("#main").innerHTML = `<p class="empty">Could not load posts (${r.status}).</p>`; return; }
   state.data = await r.json();
